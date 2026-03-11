@@ -129,7 +129,7 @@ if BACKEND == "mlx":
             positions = mx.arange(T)
             h = self.embed(x) + self.pos_embed(positions)
             for layer in self.layers:
-                h = layer(h)
+                h = layer(h, mask=None)
             h = self.norm(h)
             return self.head(h[:, -1, :])  # predict next from last position
 
@@ -157,8 +157,9 @@ if BACKEND == "mlx":
             losses = []
             for start in range(0, n, bs):
                 batch_idx = idx[start:start+bs]
-                xb = X_mx[batch_idx]
-                yb = Y_mx[batch_idx]
+                bi = mx.array(batch_idx)
+                xb = X_mx[bi]
+                yb = Y_mx[bi]
                 loss, grads = loss_and_grad(model, xb, yb)
                 optimizer.update(model, grads)
                 mx.eval(model.parameters(), optimizer.state)
