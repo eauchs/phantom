@@ -1,24 +1,18 @@
 #!/usr/bin/env python3
 """
-Phantom Agent — Proactive Action Layer
-Reads live events from the daemon, runs predictions,
-and fires macOS notifications when confident.
-
-Run alongside the daemon:
-  Terminal 1: python3 daemon/collector.py
-  Terminal 2: python3 agent/agent.py
+Phantom Agent v2 — Proactive Action Layer
+Reads live events, predicts next actions based on V2 tokens.
 """
-
 import json
 import time
 import subprocess
 import numpy as np
 from pathlib import Path
 from datetime import datetime
-from collections import deque
 
 try:
     import mlx.core as mx
+    import mlx.nn as nn
     BACKEND = "mlx"
 except ImportError:
     BACKEND = "numpy"
@@ -30,10 +24,10 @@ VOCAB_FILE = DATA_DIR / "vocab.json"
 MODELS_DIR = ROOT / "models"
 
 # ── Config ────────────────────────────────────────────
-POLL_INTERVAL   = 5      # secondes entre chaque check
-CONFIDENCE_THRESHOLD = 0.55  # seuil pour notifier
-CONTEXT_WINDOW  = 6      # derniers events à garder en contexte
-COOLDOWN        = 120    # secondes entre deux notifs identiques
+POLL_INTERVAL   = 5
+CONFIDENCE_THRESHOLD = 0.55
+CONTEXT_WINDOW  = 6
+COOLDOWN        = 120
 
 # ── Notif macOS ───────────────────────────────────────
 def notify(title: str, message: str, subtitle: str = "👻 Phantom"):
@@ -43,7 +37,6 @@ def notify(title: str, message: str, subtitle: str = "👻 Phantom"):
     subprocess.run(["osascript", "-e", script], capture_output=True)
     print(f"[{datetime.now().strftime('%H:%M:%S')}] 🔔 {title} — {message}")
 
-# ── Vocab ─────────────────────────────────────────────
 def load_vocab() -> dict:
     if not VOCAB_FILE.exists():
         return {}
@@ -51,7 +44,6 @@ def load_vocab() -> dict:
         data = json.load(f)
     return data["token2id"]
 
-# ── Prediction ────────────────────────────────────────
 def predict(model, token2id: dict, id2token: dict, context: list[str], top_k=3):
     seq_len = 16
     ids = [token2id.get(t, 1) for t in context]
@@ -59,7 +51,6 @@ def predict(model, token2id: dict, id2token: dict, context: list[str], top_k=3):
     ids = [0] * max(0, pad) + ids[-seq_len:]
 
     if BACKEND == "mlx":
-        import mlx.nn as nn
         x = mx.array([ids])
         logits = model(x)
         probs = mx.softmax(logits[0]).tolist()
@@ -71,16 +62,13 @@ def predict(model, token2id: dict, id2token: dict, context: list[str], top_k=3):
         top = sorted(enumerate(row), key=lambda x: -x[1])[:top_k]
         return [(id2token.get(i, "<UNK>"), float(p)) for i, p in top]
 
-# ── Load model ────────────────────────────────────────
 def load_model(token2id):
     if BACKEND == "mlx":
         npz = MODELS_DIR / "phantom_latest.npz"
         if not npz.exists():
             return None
-        # Reconstruit le modèle et charge les poids
-        import mlx.nn as nn
         vocab_size = len(token2id)
-
+        
         class PhantomTransformer(nn.Module):
             def __init__(self):
                 super().__init__()
@@ -108,40 +96,40 @@ def load_model(token2id):
             return None
         return np.load(str(npy))
 
-# ── Lire derniers events ──────────────────────────────
 def get_recent_events(n=10) -> list[dict]:
     today = datetime.now().strftime("%Y-%m-%d")
     f = EVENTS_DIR / f"{today}.jsonl"
-    if not f.exists():
-        return []
+    if not f.exists(): return []
+    
     lines = f.read_text().strip().split("\n")
-    lines = [l for l in lines if l.strip()]
     events = []
     for l in lines[-n:]:
-        try:
-            events.append(json.loads(l))
-        except Exception:
-            pass
+        if l.strip():
+            try: events.append(json.loads(l))
+            except: pass
     return events
 
-# ── Event → tokens ────────────────────────────────────
 def event_to_tokens(event: dict) -> list[str]:
-    from tokenizer.tokenizer import tokenize_event
+    # ATTENTION: Utilise le tokenizer v2
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from tokenizer.tokenizer_v2 import tokenize_event
     return tokenize_event(event).split()
 
-# ── Prédiction → message lisible ─────────────────────
+# ── Prédiction → message lisible (V2) ─────────────────
 READABLE = {
-    "AI:CLAUDE":          ("Claude", "Tu vas probablement ouvrir Claude"),
-    "CODE:GITHUB":        ("GitHub", "Tu vas probablement aller sur GitHub"),
-    "APP:TERMINAL":       ("Terminal", "Tu vas probablement ouvrir le Terminal"),
-    "APP:EDITOR":         ("Éditeur", "Tu vas probablement coder"),
-    "APP:BROWSER":        ("Browser", "Tu vas probablement ouvrir le browser"),
-    "DUR:DEEP":           ("Deep work", "Session longue détectée — coupe les notifs ?"),
-    "DUR:GLANCE":         ("Coup d'œil", "Passage rapide prévu"),
-    "SESSION:NIGHT":      ("Nuit", "Tu travailles tard ce soir"),
-    "SOCIAL:REDDIT":      ("Reddit", "Tu vas probablement aller sur Reddit"),
-    "RESEARCH:ARXIV":     ("Arxiv", "Tu vas probablement lire un paper"),
-    "APP:MESSAGING":      ("Message", "Tu vas probablement checker tes messages"),
+    "AI:CLAUDE":          ("Claude", "Besoin d'aide sur ton code ?"),
+    "CODE:GITHUB":        ("GitHub", "Tu t'apprêtes à check tes PRs ou push"),
+    "APP:TERMINAL":       ("Terminal", "Retour au shell"),
+    "APP:EDITOR":         ("Éditeur", "Retour dans la codebase"),
+    "APP:BROWSER":        ("Browser", "Tu vas faire une recherche"),
+    "DUR:DEEP":           ("Deep work", "Longue session en approche"),
+    "FOCUS:DEEP":         ("Zone", "Focus absolu détecté. J'arrête les notifs."),
+    "FOCUS:SHALLOW":      ("Distraction", "Ton focus baisse. Ferme des onglets ?"),
+    "TYPING:FAST":        ("Flow State", "WPM très élevé, belle dynamique !"),
+    "SWITCH:FAST":        ("Zapping", "Tu changes beaucoup d'app, besoin d'une pause ?"),
+    "WEB:YOUTUBE":        ("YouTube", "Petite pause vidéo prévue"),
+    "ERROR:HIGH":         ("Bugs ?", "Beaucoup de retours arrière. Bloqué sur un bug ?")
 }
 
 def token_to_readable(token: str) -> tuple[str, str]:
@@ -149,7 +137,7 @@ def token_to_readable(token: str) -> tuple[str, str]:
 
 # ── Main loop ─────────────────────────────────────────
 def main():
-    print("👻 Phantom Agent started")
+    print("👻 Phantom Agent v2 started")
     print(f"   Backend: {BACKEND.upper()}")
     print(f"   Confidence threshold: {CONFIDENCE_THRESHOLD:.0%}")
     print(f"   Watching: {EVENTS_DIR}\n")
@@ -166,31 +154,25 @@ def main():
         return
 
     print("   ✓ Model loaded. Watching your behavior...\n")
-    notify("Phantom", "Agent démarré — je t'observe 👀")
+    notify("Phantom v2", "Agent démarré — analyse du focus et clavier activée 👀")
 
-    last_notif  = {}   # token → timestamp dernière notif
-    last_events = []   # events vus au dernier poll
-
-    import sys
-    sys.path.insert(0, str(ROOT))
+    last_notif  = {}
+    last_events = []
 
     while True:
         try:
             events = get_recent_events(CONTEXT_WINDOW)
-
             if events == last_events or not events:
                 time.sleep(POLL_INTERVAL)
                 continue
 
             last_events = events
-
-            # Construit le contexte courant
+            
             context_tokens = []
             for ev in events:
                 context_tokens.extend(event_to_tokens(ev))
-            context_tokens = context_tokens[-16:]  # garde les 16 derniers
+            context_tokens = context_tokens[-16:]
 
-            # Prédit
             preds = predict(model, token2id, id2token, context_tokens)
 
             for token, confidence in preds:
@@ -199,7 +181,6 @@ def main():
                 if token in {"<PAD>", "<UNK>", "<BOS>", "<EOS>"}:
                     continue
 
-                # Cooldown — pas deux fois la même notif en 2 min
                 now = time.time()
                 if token in last_notif and now - last_notif[token] < COOLDOWN:
                     continue
@@ -207,7 +188,7 @@ def main():
                 title, message = token_to_readable(token)
                 notify(title, message, subtitle=f"👻 {confidence:.0%} de confiance")
                 last_notif[token] = now
-                break  # une seule notif par cycle
+                break
 
             time.sleep(POLL_INTERVAL)
 
