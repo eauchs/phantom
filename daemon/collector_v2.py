@@ -14,6 +14,8 @@ from pathlib import Path
 from collections import deque
 
 import psutil
+import os
+import os
 
 try:
     from pynput import keyboard as kb, mouse as ms
@@ -60,7 +62,13 @@ class BehaviorState:
         self.scroll_events    = 0
         self.last_mouse_time  = None
         self.mouse_idle_since = time.time()
+        self.pending_actions  = []
         
+    def record_action(self, action):
+        with self._lock:
+            if action not in self.pending_actions:
+                self.pending_actions.append(action)
+    
     def record_key(self, key_name):
         with self._lock:
             now = time.time()
@@ -139,7 +147,8 @@ class BehaviorState:
                 "mouse_distance_px": round(mouse_distance),
                 "mouse_clicks":     self.mouse_clicks,
                 "scroll_events":    self.scroll_events,
-                "mouse_idle_s":     round(mouse_idle_s),
+                "mouse_idle_s":      round(mouse_idle_s),
+                "action":            ",".join(self.pending_actions) if self.pending_actions else None,
             }
             
             # Reset deltas
@@ -149,8 +158,55 @@ class BehaviorState:
             self.mouse_positions.clear()
             self.mouse_clicks   = 0
             self.scroll_events  = 0
+            self.pending_actions = []
             
             return snap
+
+class ActionSensor:
+    def __init__(self):
+        self.seen_apps = {p.info['name'] for p in psutil.process_iter(['name'])}
+        self.last_dir_state = {} 
+        self.git_keywords = {"push", "commit", "pull"}
+
+    def detect(self, current_app, current_file):
+        actions = []
+        try:
+            # 1. App launches
+            current_running = {p.info['name'] for p in psutil.process_iter(['name'])}
+            new_apps = current_running - self.seen_apps
+            for app in new_apps:
+                if ".app" in app or (len(app) > 2 and app[0].isupper()): # heuristic for GUI apps
+                    token_app = app.replace(" ", "_").replace(".app", "").upper()
+                    actions.append(f"ACT:OPEN_{token_app}")
+            self.seen_apps = current_running
+            
+            # 2. Git operations
+            for p in psutil.process_iter(['name', 'cmdline']):
+                if p.info['name'] == 'git' and p.info['cmdline']:
+                    cmd = " ".join(p.info['cmdline'])
+                    for kw in self.git_keywords:
+                        if kw in cmd:
+                            actions.append(f"ACT:GIT_{kw.upper()}")
+            
+            # 3. File changes
+            if current_file:
+                # Simple file creation/deletion detection
+                # We need to know where the project is. ROOT is a good start.
+                dir_path = str(ROOT)
+                files = set()
+                # Optimized: only check a few levels or specific folders
+                for root, dirs, filenames in os.walk(ROOT / "agent", top_down=True):
+                    for f in filenames: files.add(os.path.join(root, f))
+                    break # only top level of agent for now to avoid lag
+                
+                if dir_path in self.last_dir_state:
+                    old_files = self.last_dir_state[dir_path]
+                    if len(files) > len(old_files): actions.append("ACT:FILE_CREATE")
+                    if len(files) < len(old_files): actions.append("ACT:FILE_DELETE")
+                self.last_dir_state[dir_path] = files
+        except Exception:
+            pass
+        return list(set(actions))
 
 STATE = BehaviorState()
 
@@ -386,6 +442,7 @@ def main():
     
     start_listeners()
     
+    sensor        = ActionSensor()
     current_app   = None
     current_start = None
     current_url   = ""
@@ -402,6 +459,11 @@ def main():
             app  = get_active_app()
             url  = get_browser_url(app) if app in BROWSERS else ""
             file = get_active_file(app)
+            
+            # ── Actions ──
+            actions = sensor.detect(app, file)
+            for a in actions:
+                STATE.record_action(a)
             
             # ── Tab count ──
             tab_count    = get_browser_tab_count(app) if app in BROWSERS else 0
@@ -483,6 +545,7 @@ def main():
                         # ── Composite ──
                         "focus_score":     focus,
                         "app_switch_rate": round(app_switch_rate, 1),
+                        "action":          behavior["action"],
                     }
                     
                     log_event(event)
