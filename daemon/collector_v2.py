@@ -187,10 +187,10 @@ class ActionSensor:
             # 3. File changes
             if current_file:
                 # Optimized: only check top level of agent for now
-                dir_path = str(ROOT / "agent")
+                dir_path = str(ROOT)
                 files = set()
                 try:
-                    files = set(os.listdir(ROOT / "agent"))
+                    files = set(os.listdir(ROOT))
                     if dir_path in self.last_dir_state:
                         old_files = self.last_dir_state[dir_path]
                         if len(files) > len(old_files): actions.append("ACT:FILE_CREATE")
