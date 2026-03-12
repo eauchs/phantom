@@ -6,6 +6,7 @@ Reads live events, predicts next actions based on V2 tokens.
 import json
 import time
 import subprocess
+import sys
 import numpy as np
 from pathlib import Path
 from datetime import datetime
@@ -18,6 +19,10 @@ except ImportError:
     BACKEND = "numpy"
 
 ROOT       = Path(__file__).parent.parent
+sys.path.insert(0, str(ROOT))
+
+from tokenizer.tokenizer_v2 import tokenize_event
+
 DATA_DIR   = ROOT / "data"
 EVENTS_DIR = DATA_DIR / "events"
 VOCAB_FILE = DATA_DIR / "vocab.json"
@@ -111,9 +116,6 @@ def get_recent_events(n=10) -> list[dict]:
 
 def event_to_tokens(event: dict) -> list[str]:
     # ATTENTION: Utilise le tokenizer v2
-    import sys
-    sys.path.insert(0, str(ROOT))
-    from tokenizer.tokenizer_v2 import tokenize_event
     return tokenize_event(event).split()
 
 # ── Prédiction → message lisible (V2) ─────────────────
