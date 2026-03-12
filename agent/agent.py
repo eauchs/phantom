@@ -22,6 +22,7 @@ ROOT       = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from tokenizer.tokenizer_v2 import tokenize_event
+from agent.feedback_logger import log_feedback
 
 DATA_DIR   = ROOT / "data"
 EVENTS_DIR = DATA_DIR / "events"
@@ -137,6 +138,47 @@ READABLE = {
 def token_to_readable(token: str) -> tuple[str, str]:
     return READABLE.get(token, (token, f"Prédit : {token}"))
 
+# ── Actions execution ─────────────────────────────────
+ACTION_MAP = {
+    "ACT:OPEN_BROWSER":  ("Browser", "Ouvrir Claude.ai ?", "open https://claude.ai"),
+    "ACT:OPEN_TERMINAL": ("Terminal", "Lancer le Terminal ?", "open -a Terminal"),
+    "ACT:GIT_PUSH":      ("Git", "Pousser les changements (git push) ?", "git push"),
+    "ACT:OPEN_COMM":     ("Chat", "Ouvrir WhatsApp ?", "open -a WhatsApp"),
+}
+
+def ask_confirmation(title, message):
+    # Utilise osascript pour un dialogue bloquant (UI macOS)
+    script = f'display dialog "{message}" with title "{title}" buttons {{"Annuler", "OK"}} default button "OK" giving up after 15'
+    try:
+        r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+        return "OK" in r.stdout
+    except:
+        return False
+
+def execute_action(token, context_tokens):
+    if token not in ACTION_MAP:
+        return False
+    
+    title, prompt, command = ACTION_MAP[token]
+    
+    # Demande confirmation via dialogue macOS
+    confirmed = ask_confirmation(f"👻 Phantom: {title}", prompt)
+    
+    # Log feedback (important pour le futur RL / reward)
+    from agent.feedback_logger import log_feedback
+    log_feedback(token, confirmed, context_tokens)
+    
+    if confirmed:
+        try:
+            cwd = str(ROOT) if "git" in command else None
+            subprocess.run(command, shell=True, cwd=cwd)
+            notify("Action exécutée", f"{token} a été lancé avec succès.")
+            return True
+        except Exception as e:
+            notify("Erreur", f"Échec de l'action {token}: {e}")
+    
+    return False
+
 # ── Main loop ─────────────────────────────────────────
 def main():
     print("👻 Phantom Agent v2 started")
@@ -187,6 +229,14 @@ def main():
                 if token in last_notif and now - last_notif[token] < COOLDOWN:
                     continue
 
+                # ── Exécution Proactive (Actions) ──
+                if token.startswith("ACT:") and confidence > 0.70:
+                    executed = execute_action(token, context_tokens)
+                    if executed:
+                        last_notif[token] = now
+                        break
+
+                # ── Notification Simple (Observations) ──
                 title, message = token_to_readable(token)
                 notify(title, message, subtitle=f"👻 {confidence:.0%} de confiance")
                 last_notif[token] = now
