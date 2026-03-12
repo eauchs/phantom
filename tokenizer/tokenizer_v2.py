@@ -117,10 +117,41 @@ def switch_token(rate):
 def net_token(active):
     return "NET:ACTIVE" if active else "NET:IDLE"
 
+def action_tokens(action_str):
+    if not action_str:
+        return []
+    
+    tokens = []
+    actions = action_str.split(",")
+    
+    mapping = {
+        "ACT:OPEN_CHROME": "ACT:OPEN_BROWSER", "ACT:OPEN_ARC": "ACT:OPEN_BROWSER",
+        "ACT:OPEN_SAFARI": "ACT:OPEN_BROWSER", "ACT:OPEN_FIREFOX": "ACT:OPEN_BROWSER",
+        "ACT:OPEN_TERMINAL": "ACT:OPEN_TERMINAL", "ACT:OPEN_ITERM2": "ACT:OPEN_TERMINAL",
+        "ACT:OPEN_CURSOR": "ACT:OPEN_EDITOR", "ACT:OPEN_VISUAL_STUDIO_CODE": "ACT:OPEN_EDITOR",
+        "ACT:OPEN_XCODE": "ACT:OPEN_EDITOR",
+        "ACT:OPEN_SLACK": "ACT:OPEN_COMM", "ACT:OPEN_WHATSAPP": "ACT:OPEN_COMM",
+        "ACT:OPEN_TELEGRAM": "ACT:OPEN_COMM", "ACT:OPEN_MESSAGES": "ACT:OPEN_COMM",
+    }
+    
+    for a in actions:
+        if a in mapping:
+            tokens.append(mapping[a])
+        else:
+            # Fallback for GIT and FILE actions which are already in correct format or need passthrough
+            if a.startswith("ACT:GIT_") or a.startswith("ACT:FILE_"):
+                tokens.append(a)
+            elif a.startswith("ACT:OPEN_"):
+                # Generic app open if not in mapping
+                tokens.append(a)
+    
+    return tokens
+
 # ── Tokenize one event ──────────────────────────────────
 def tokenize_event(ev):
     tokens = []
     
+    # ── Context ──
     tokens.append(session_token(ev.get("hour", 12)))
     tokens.append(day_token(ev.get("weekday", "Monday")))
     tokens.append(app_token(ev.get("app", "")))
@@ -130,6 +161,7 @@ def tokenize_event(ev):
     
     tokens.append(duration_token(ev.get("duration", 0)))
     
+    # ── Behavior ──
     wpm = ev.get("wpm")
     if wpm is not None:
         tokens.append(wpm_token(wpm))
@@ -165,6 +197,11 @@ def tokenize_event(ev):
     net = ev.get("net_active")
     if net is not None:
         tokens.append(net_token(net))
+
+    # ── Actions ──
+    act = ev.get("action")
+    if act:
+        tokens.extend(action_tokens(act))
     
     return " ".join(t for t in tokens if t)
 
