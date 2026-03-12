@@ -142,7 +142,7 @@ def token_to_readable(token: str) -> tuple[str, str]:
 ACTION_MAP = {
     "ACT:OPEN_BROWSER":  ("Browser", "Ouvrir Claude.ai ?", "open https://claude.ai"),
     "ACT:OPEN_TERMINAL": ("Terminal", "Lancer le Terminal ?", "open -a Terminal"),
-    "ACT:GIT_PUSH":      ("Git", "Pousser les changements (git push) ?", "git push"),
+    "ACT:GIT_PUSH":      ("Git", "Pousser les changements ?", "osascript -e 'tell app \"Terminal\" to do script \"git push\"'"),
     "ACT:OPEN_COMM":     ("Chat", "Ouvrir WhatsApp ?", "open -a WhatsApp"),
 }
 
@@ -165,12 +165,11 @@ def execute_action(token, context_tokens):
     confirmed = ask_confirmation(f"👻 Phantom: {title}", prompt)
     
     # Log feedback (important pour le futur RL / reward)
-    from agent.feedback_logger import log_feedback
     log_feedback(token, confirmed, context_tokens)
     
     if confirmed:
         try:
-            cwd = str(ROOT) if "git" in command else None
+            cwd = str(ROOT) if "git" in command and "osascript" not in command else None
             subprocess.run(command, shell=True, cwd=cwd)
             notify("Action exécutée", f"{token} a été lancé avec succès.")
             return True
