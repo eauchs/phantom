@@ -87,14 +87,21 @@ def ask_llm(last_5_tokens, profile_summary):
     payload = {
         "messages": [{"role": "system", "content": system_prompt}],
         "temperature": 0.7,
-        "max_tokens": 50
+        "max_tokens": 500
     }
     
     for attempt in range(2):
         try:
             r = requests.post(LLAMA_URL, json=payload, timeout=30)
             if r.status_code == 200:
-                return r.json()["choices"][0]["message"]["content"].strip().strip('"')
+                content = r.json()["choices"][0]["message"]["content"]
+                # Strip <think>...</think> tags
+                if "<think>" in content and "</think>" in content:
+                    content = content.split("</think>")[-1].strip()
+                elif "</think>" in content:
+                    content = content.split("</think>")[-1].strip()
+                
+                return content.strip().strip('"')
         except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError) as e:
             if attempt == 0:
                 print(f"[INTERVIEWER] Connection error, retrying in 10s... ({e})")
