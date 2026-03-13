@@ -39,6 +39,7 @@ CACHE_FILE  = ROOT / "data" / "tokens_cache.json"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
+POLL_INTERVAL = 5
 LLAMA_URL = "http://127.0.0.1:8080/v1/chat/completions"
 
 # ── Contextual Tokenizer ───────────────────────────────
@@ -61,7 +62,13 @@ def get_contextual_token(app_name, url):
         "Return ONLY the token, nothing else."
     )
     user_prompt = f"app={app_name} url={url}"
-    if not app_name and not url:
+    
+    # ── Guards ──
+    if not app_name.strip() and not url.strip():
+        return None
+    
+    # Avoid too short/useless queries
+    if len(user_prompt.replace("app=","").replace("url=","").strip()) < 3:
         return None
 
     payload = {
@@ -72,8 +79,18 @@ def get_contextual_token(app_name, url):
         "max_tokens": 20,
         "temperature": 0.0
     }
+    
+    # ── Guard: verify user query is not empty ──
+    user_msg = next((m["content"] for m in payload["messages"] if m["role"] == "user"), None)
+    if not user_msg or not user_msg.strip():
+        return None
+
+    print(f"[LLM DEBUG] get_contextual_token sending {len(payload['messages'])} messages")
+    for m in payload["messages"]:
+        print(f"  role={m['role']} content_len={len(str(m.get('content','')))}")
+
     try:
-        r = requests.post(LLAMA_URL, json=payload, timeout=5)
+        r = requests.post(LLAMA_URL, json=payload, timeout=30)
         if r.status_code == 200:
             content = r.json()["choices"][0]["message"]["content"].strip()
             if "<think>" in content:

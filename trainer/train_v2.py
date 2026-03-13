@@ -65,10 +65,12 @@ def get_qwen_reward(entry, session_mod=0.0):
     if not user_msg or not user_msg.strip():
         return (1.0 if entry.get("accepted") else -1.0), "Fallback due to empty user query"
 
-    # print(f"      [DEBUG] Scoring with context: {user_msg[:100]}...")
+    print(f"[LLM DEBUG] get_qwen_reward sending {len(payload['messages'])} messages")
+    for m in payload["messages"]:
+        print(f"  role={m['role']} content_len={len(str(m.get('content','')))}")
 
     try:
-        r = requests.post(LLAMA_URL, json=payload, timeout=30)
+        r = requests.post(LLAMA_URL, json=payload, timeout=120)
         if r.status_code == 200:
             content = r.json()["choices"][0]["message"]["content"].strip()
             # Strip <think>...</think> tags
