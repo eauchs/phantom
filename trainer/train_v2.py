@@ -60,6 +60,13 @@ def get_qwen_reward(entry, session_mod=0.0):
         "temperature": 0.0
     }
     
+    # ── Guard: verify user query is not empty ──
+    user_msg = next((m["content"] for m in payload["messages"] if m["role"] == "user"), None)
+    if not user_msg or not user_msg.strip():
+        return (1.0 if entry.get("accepted") else -1.0), "Fallback due to empty user query"
+
+    # print(f"      [DEBUG] Scoring with context: {user_msg[:100]}...")
+
     try:
         r = requests.post(LLAMA_URL, json=payload, timeout=30)
         if r.status_code == 200:

@@ -99,6 +99,14 @@ def ask_llm(last_5_tokens, profile_summary):
         "max_tokens": 500
     }
     
+    # ── Guard: verify user query is not empty ──
+    user_msg = next((m["content"] for m in payload["messages"] if m["role"] == "user"), None)
+    if not user_msg or not user_msg.strip():
+        print(f"[INTERVIEWER] Error: No user query found. Payload: {payload}")
+        return random.choice(FALLBACK_QUESTIONS)
+
+    print(f"[INTERVIEWER] Sending to Qwen: {payload['messages']}")
+
     for attempt in range(2):
         try:
             r = requests.post(LLAMA_URL, json=payload, timeout=120)
@@ -181,6 +189,14 @@ def parse_answer_with_qwen(question, answer):
         "temperature": 0.0
     }
     
+    # ── Guard: verify user query is not empty ──
+    user_msg = next((m["content"] for m in payload["messages"] if m["role"] == "user"), None)
+    if not user_msg or not user_msg.strip():
+        print(f"[INTERVIEWER] NLP Error: No user query found. Payload: {payload}")
+        return
+
+    print(f"[INTERVIEWER] NLP Parsing via Qwen: {payload['messages']}")
+
     try:
         r = requests.post(LLAMA_URL, json=payload, timeout=120)
         if r.status_code == 200:
