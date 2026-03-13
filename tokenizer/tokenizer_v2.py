@@ -88,6 +88,12 @@ def ext_token(ext):
 def dark_token(is_dark):
     return "MODE:DARK" if is_dark else "MODE:LIGHT"
 
+def battery_token(percent, charging):
+    if charging: return "BAT:CHARGING"
+    if percent > 60: return "BAT:HIGH"
+    if percent > 20: return "BAT:MED"
+    return "BAT:LOW"
+
 def url_token(url):
     if not url:
         return None
@@ -210,6 +216,8 @@ def tokenize_event(ev):
     clip = ev.get("clipboard_type", "")
     ext  = ev.get("active_file_ext", "")
     dark = ev.get("dark_mode", False)
+    bat_p = ev.get("bat_percent", 100)
+    bat_c = ev.get("bat_charging", True)
     
     tokens.append(app_token(app))
     
@@ -218,6 +226,7 @@ def tokenize_event(ev):
     tokens.append(clip_token(clip))
     tokens.append(ext_token(ext))
     tokens.append(dark_token(dark))
+    tokens.append(battery_token(bat_p, bat_c))
     
     # New: Project context (extract from file or url)
     project = project_token(app, file, url)

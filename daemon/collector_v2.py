@@ -553,8 +553,13 @@ def main():
             # ── Focus score ──
             focus = compute_focus_score(behavior, all_tabs or tab_count, window_count, app_switch_rate)
             
+            # ── Battery state ──
+            bat = sys_metrics.get("battery")
+            bat_percent = bat["percent"] if bat else 100
+            bat_charging = bat["plugged"] if bat else True
+
             # ── Détection changement de contexte ──
-            state_key = f"{app}|{url}|{file}|{ssid}|{clip}|{dark}"
+            state_key = f"{app}|{url}|{file}|{ssid}|{clip}|{dark}|{bat_charging}"
             
             if current_app is None:
                 current_app   = app
@@ -565,8 +570,9 @@ def main():
                 current_ssid  = ssid
                 current_clip  = clip
                 current_dark  = dark
+                current_bat_c = bat_charging
             
-            elif state_key != f"{current_app}|{current_url}|{current_file}|{current_ssid}|{current_clip}|{current_dark}":
+            elif state_key != f"{current_app}|{current_url}|{current_file}|{current_ssid}|{current_clip}|{current_dark}|{current_bat_c}":
                 duration = (now - current_start).total_seconds()
                 
                 if duration >= MIN_DURATION:
@@ -584,6 +590,8 @@ def main():
                         "ssid":      current_ssid,
                         "clipboard_type": current_clip,
                         "dark_mode": current_dark,
+                        "bat_percent": bat_percent,
+                        "bat_charging": current_bat_c,
                         
                         # ── Keyboard ──
                         "wpm":              behavior["wpm"],
@@ -635,6 +643,7 @@ def main():
                 current_ssid  = ssid
                 current_clip  = clip
                 current_dark  = dark
+                current_bat_c = bat_charging
             
             time.sleep(POLL_INTERVAL)
         
