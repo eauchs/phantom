@@ -22,7 +22,7 @@ ROOT       = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from tokenizer.tokenizer_v2 import tokenize_event
-from feedback_logger import log_feedback
+from agent.feedback_logger import log_feedback
 
 DATA_DIR   = ROOT / "data"
 EVENTS_DIR = DATA_DIR / "events"
@@ -49,8 +49,8 @@ class UserTower(nn.Module):
 
     def __call__(self, x):
         h = nn.relu(self.fc1(x))
-        _, (h_last, _) = self.lstm(h)
-        h_last = h_last[-1]
+        h_seq, _ = self.lstm(h)
+        h_last = h_seq[:, -1, :]
         out = self.fc2(h_last)
         return out / mx.linalg.norm(out, axis=-1, keepdims=True)
 
