@@ -1,8 +1,9 @@
-__pycache__/
-*.pyc
-.env
 data/
 logs/
 models/
-data/
-logs/
+*.log
+*.npz
+*.npy
+__pycache__/
+*.pyc
+.env
