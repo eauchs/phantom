@@ -63,7 +63,7 @@ def get_profile_summary():
 
 def check_health():
     try:
-        r = requests.get(HEALTH_URL, timeout=5)
+        r = requests.get(HEALTH_URL, timeout=10)
         if r.status_code == 200:
             return r.json().get("status") == "ok"
     except:
@@ -96,7 +96,7 @@ def ask_llm(last_5_tokens, profile_summary):
     
     for attempt in range(2):
         try:
-            r = requests.post(LLAMA_URL, json=payload, timeout=30)
+            r = requests.post(LLAMA_URL, json=payload, timeout=120)
             if r.status_code == 200:
                 content = r.json()["choices"][0]["message"]["content"]
                 # Strip <think>...</think> tags
@@ -175,7 +175,7 @@ def parse_answer_with_qwen(question, answer):
     }
     
     try:
-        r = requests.post(LLAMA_URL, json=payload, timeout=30)
+        r = requests.post(LLAMA_URL, json=payload, timeout=120)
         if r.status_code == 200:
             content = r.json()["choices"][0]["message"]["content"].strip()
             if "<think>" in content:
