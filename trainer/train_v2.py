@@ -52,6 +52,7 @@ def get_qwen_reward(entry, session_mod=0.0):
         return (1.0 if entry.get("accepted") else -1.0), "Fallback due to empty context"
     
     payload = {
+        "model": "local-model",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content}

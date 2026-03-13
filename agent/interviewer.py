@@ -91,6 +91,7 @@ def ask_llm(last_5_tokens, profile_summary):
     )
     
     payload = {
+        "model": "local-model",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content}
@@ -105,7 +106,9 @@ def ask_llm(last_5_tokens, profile_summary):
         print(f"[INTERVIEWER] Error: No user query found. Payload: {payload}")
         return random.choice(FALLBACK_QUESTIONS)
 
-    print(f"[INTERVIEWER] Sending to Qwen: {payload['messages']}")
+    print(f"[LLM DEBUG] ask_llm sending {len(payload['messages'])} messages")
+    for m in payload["messages"]:
+        print(f"  role={m['role']} content_len={len(str(m.get('content','')))}")
 
     for attempt in range(2):
         try:
@@ -181,6 +184,7 @@ def parse_answer_with_qwen(question, answer):
         return # Nothing to parse
     
     payload = {
+        "model": "local-model",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content}
@@ -195,7 +199,9 @@ def parse_answer_with_qwen(question, answer):
         print(f"[INTERVIEWER] NLP Error: No user query found. Payload: {payload}")
         return
 
-    print(f"[INTERVIEWER] NLP Parsing via Qwen: {payload['messages']}")
+    print(f"[LLM DEBUG] parse_answer_with_qwen sending {len(payload['messages'])} messages")
+    for m in payload["messages"]:
+        print(f"  role={m['role']} content_len={len(str(m.get('content','')))}")
 
     try:
         r = requests.post(LLAMA_URL, json=payload, timeout=120)

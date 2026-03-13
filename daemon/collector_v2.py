@@ -72,6 +72,7 @@ def get_contextual_token(app_name, url):
         return None
 
     payload = {
+        "model": "local-model",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
