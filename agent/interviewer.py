@@ -4,6 +4,7 @@ import time
 import subprocess
 import sys
 import requests
+import random
 from datetime import datetime
 from pathlib import Path
 
@@ -15,7 +16,17 @@ PROFILE_DIR = DATA_DIR / "profile"
 PROFILE_FILE = PROFILE_DIR / "profile.json"
 ANSWERS_FILE = PROFILE_DIR / "answers.jsonl"
 
-LLAMA_URL = "http://localhost:8080/v1/chat/completions"
+LLAMA_BASE_URL = "http://127.0.0.1:8080"
+LLAMA_URL = f"{LLAMA_BASE_URL}/v1/chat/completions"
+HEALTH_URL = f"{LLAMA_BASE_URL}/health"
+
+FALLBACK_QUESTIONS = [
+    "Sur quoi travailles-tu en ce moment ?",
+    "Comment puis-je t'aider à être plus productif ?",
+    "Y a-t-il une tâche répétitive que je devrais automatiser ?",
+    "Quel est ton objectif principal pour cette session ?",
+    "Comment te sens-tu par rapport à ta charge de travail actuelle ?"
+]
 
 def get_last_events(n=10) -> list[dict]:
     today = datetime.now().strftime("%Y-%m-%d")
@@ -49,7 +60,20 @@ def get_profile_summary():
     except:
         return "Error reading profile."
 
+def check_health():
+    try:
+        r = requests.get(HEALTH_URL, timeout=5)
+        if r.status_code == 200:
+            return r.json().get("status") == "ok"
+    except:
+        pass
+    return False
+
 def ask_llm(last_5_tokens, profile_summary):
+    if not check_health():
+        print("[INTERVIEWER] llama-server not healthy, using fallback.")
+        return random.choice(FALLBACK_QUESTIONS)
+
     user = subprocess.run(["whoami"], capture_output=True, text=True).stdout.strip()
     system_prompt = (
         f"You are Phantom, a personal AI OS observing {user}'s behavior.\n"
@@ -66,13 +90,23 @@ def ask_llm(last_5_tokens, profile_summary):
         "max_tokens": 50
     }
     
-    try:
-        r = requests.post(LLAMA_URL, json=payload, timeout=10)
-        if r.status_code == 200:
-            return r.json()["choices"][0]["message"]["content"].strip().strip('"')
-    except Exception as e:
-        print(f"[INTERVIEWER] LLM Error: {e}")
-    return None
+    for attempt in range(2):
+        try:
+            r = requests.post(LLAMA_URL, json=payload, timeout=30)
+            if r.status_code == 200:
+                return r.json()["choices"][0]["message"]["content"].strip().strip('"')
+        except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError) as e:
+            if attempt == 0:
+                print(f"[INTERVIEWER] Connection error, retrying in 10s... ({e})")
+                time.sleep(10)
+                continue
+            else:
+                print(f"[INTERVIEWER] LLM Error after retry: {e}")
+        except Exception as e:
+            print(f"[INTERVIEWER] LLM Unexpected Error: {e}")
+            break
+            
+    return random.choice(FALLBACK_QUESTIONS)
 
 def show_dialog(question):
     script = f'display dialog "{question}" default answer "" with title "👻 Phantom te pose une question"'
@@ -130,7 +164,11 @@ def check_rejected_actions():
         return
 
     # Check profile to see if we already asked today
-    profile = json.loads(PROFILE_FILE.read_text())
+    try:
+        profile = json.loads(PROFILE_FILE.read_text())
+    except:
+        profile = {"preferences": {}, "avoid": {}, "context": {}, "action_feedback": {}}
+
     action_feedback = profile.get("action_feedback", {})
     today = datetime.now().strftime("%Y-%m-%d")
 
@@ -175,10 +213,6 @@ def interviewer_loop():
             
             if is_active_hours and is_cooldown_over:
                 events = get_last_events(10)
-                # Need to tokenize to check tokens
-                # For simplicity, we'll check if the event data itself implies FOCUS:SHALLOW or SWITCH:FAST
-                # OR we can just use the tokens if they are already in the events (not likely in v2 yet)
-                # Wait, agent.py uses tokenize_event. Let's import it.
                 from tokenizer.tokenizer_v2 import tokenize_event
                 
                 last_5_tokens = []
