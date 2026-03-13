@@ -57,7 +57,7 @@ def get_qwen_reward(entry, session_mod=0.0):
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content}
         ],
-        "max_tokens": 500,
+        "max_tokens": -1,
         "temperature": 0.0
     }
     

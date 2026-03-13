@@ -97,7 +97,8 @@ def ask_llm(last_5_tokens, profile_summary):
             {"role": "user", "content": user_content}
         ],
         "temperature": 0.7,
-        "max_tokens": 500
+        "max_tokens": -1,
+
     }
     
     # ── Guard: verify user query is not empty ──
@@ -189,7 +190,8 @@ def parse_answer_with_qwen(question, answer):
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content}
         ],
-        "max_tokens": 300,
+        "max_tokens": -1,
+
         "temperature": 0.0
     }
     
