@@ -73,6 +73,21 @@ def ssid_token(ssid):
     clean_ssid = "".join(c for c in ssid if c.isalnum() or c in ("-", "_")).upper()
     return f"NET:{clean_ssid}"
 
+def clip_token(clip):
+    if not clip or clip == "empty": return "CLIP:EMPTY"
+    return f"CLIP:{clip.upper()}"
+
+def ext_token(ext):
+    if not ext or ext == "none": return "FILE:NONE"
+    mapping = {
+        "py": "PYTHON", "cpp": "CPP", "md": "MARKDOWN",
+        "tsx": "WEB", "json": "OTHER"
+    }
+    return f"FILE:{mapping.get(ext, 'OTHER')}"
+
+def dark_token(is_dark):
+    return "MODE:DARK" if is_dark else "MODE:LIGHT"
+
 def url_token(url):
     if not url:
         return None
@@ -192,11 +207,17 @@ def tokenize_event(ev):
     file = ev.get("file", "")
     url  = ev.get("url", "")
     ssid = ev.get("ssid", "")
+    clip = ev.get("clipboard_type", "")
+    ext  = ev.get("active_file_ext", "")
+    dark = ev.get("dark_mode", False)
     
     tokens.append(app_token(app))
     
-    # New: SSID context
+    # New: Context expansion
     tokens.append(ssid_token(ssid))
+    tokens.append(clip_token(clip))
+    tokens.append(ext_token(ext))
+    tokens.append(dark_token(dark))
     
     # New: Project context (extract from file or url)
     project = project_token(app, file, url)
