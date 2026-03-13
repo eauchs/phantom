@@ -78,7 +78,8 @@ def get_contextual_token(app_name, url):
             {"role": "user", "content": user_prompt}
         ],
         "max_tokens": 20,
-        "temperature": 0.0
+        "temperature": 0.0,
+        "enable_thinking": False
     }
     
     # ── Guard: verify user query is not empty ──
@@ -96,6 +97,9 @@ def get_contextual_token(app_name, url):
             content = r.json()["choices"][0]["message"]["content"].strip()
             if "<think>" in content:
                 content = content.split("</think>")[-1].strip()
+            
+            if not content or not content.strip():
+                return None
 
             token = content.split()[0].upper() if content else None
             if token and ":" in token:
