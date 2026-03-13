@@ -47,11 +47,14 @@ def get_qwen_reward(entry, session_mod=0.0):
         "ts": entry.get("ts"),
         "context_tokens": entry.get("context_tokens", [])[-10:]
     }
+    user_content = json.dumps(context)
+    if not user_content or user_content == "{}":
+        return (1.0 if entry.get("accepted") else -1.0), "Fallback due to empty context"
     
     payload = {
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": json.dumps(context)}
+            {"role": "user", "content": user_content}
         ],
         "max_tokens": 500,
         "temperature": 0.0

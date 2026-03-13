@@ -61,6 +61,8 @@ def get_contextual_token(app_name, url):
         "Return ONLY the token, nothing else."
     )
     user_prompt = f"app={app_name} url={url}"
+    if not app_name and not url:
+        return None
 
     payload = {
         "messages": [
@@ -70,7 +72,6 @@ def get_contextual_token(app_name, url):
         "max_tokens": 20,
         "temperature": 0.0
     }
-
     try:
         r = requests.post(LLAMA_URL, json=payload, timeout=5)
         if r.status_code == 200:

@@ -77,7 +77,12 @@ def ask_llm(last_5_tokens, profile_summary):
 
     user = subprocess.run(["whoami"], capture_output=True, text=True).stdout.strip()
     context = build_context()
+    user_content = json.dumps(context)
     
+    if not user_content or not user_content.strip() or user_content == "{}":
+        print("[INTERVIEWER] Empty context, using fallback.")
+        return random.choice(FALLBACK_QUESTIONS)
+
     system_prompt = (
         f"You are Phantom, a personal AI OS observing {user}'s behavior.\n"
         "Generate ONE short, specific question in French to better understand\n"
@@ -88,7 +93,7 @@ def ask_llm(last_5_tokens, profile_summary):
     payload = {
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": json.dumps(context)}
+            {"role": "user", "content": user_content}
         ],
         "temperature": 0.7,
         "max_tokens": 500
@@ -163,12 +168,14 @@ def parse_answer_with_qwen(question, answer):
         "interruptions right now. -1.0 = never interrupt, +1.0 = open. "
         "Strip <think> tags before parsing."
     )
-    user_prompt = f"question={question}\nanswer={answer}"
+    user_content = f"question={question}\nanswer={answer}"
+    if not answer or not answer.strip():
+        return # Nothing to parse
     
     payload = {
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
+            {"role": "user", "content": user_content}
         ],
         "max_tokens": 300,
         "temperature": 0.0
