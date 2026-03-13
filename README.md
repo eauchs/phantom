@@ -11,8 +11,10 @@ Phantom is different: it observes your behavior continuously, builds a behaviora
 
 ## Architecture
 ```
-[Daemon] → [Tokenizer] → [Transformer] → [Agent]
- observe     sequences     MLX train      act + feedback
+[Daemon] → [Feature Extractor] → [Two-Tower Model] → [Agent]
+ observe     raw normalized         LSTM user tower     act + feedback
+             features (24d)       + action embeddings
+                                    (inspired by X/Phoenix)
 ```
 
 The daemon captures ~15 behavioral signals every 5 seconds. The tokenizer converts them into a compact sequence language. A small transformer (128d, 4 layers, MLX) trains on these sequences and predicts your next action. The agent executes — or notifies — with a macOS confirmation dialog.
@@ -43,6 +45,7 @@ When the model predicts an `ACT:*` token with >70% confidence, Phantom asks for 
 
 ## Stack
 
+- **Architecture** — Two-Tower Behavioral Recommender (inspired by xai-org/x-algorithm)
 - **Observation** — Python daemon, NSWorkspace, pynput, psutil, Quartz
 - **Learning** — MLX transformer, Apple Silicon (M3 Max 128GB)
 - **Inference** — on-device, <3s retrain cycle
@@ -61,8 +64,8 @@ phantom/
 
 ## Status
 
-Currently in active self-training. Retrains daily as behavioral data accumulates.  
-Loss: 0.45 → target <0.30 with 5000+ sequences.
+V2.1 live — Two-Tower recommender in training (924 events, overfitting expected until 5000+).
+Legacy transformer (loss: 0.45) active as fallback.
 
 ---
 
