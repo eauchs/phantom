@@ -1,0 +1,209 @@
+#!/usr/bin/env python3
+import json
+import time
+import subprocess
+import sys
+import requests
+from datetime import datetime
+from pathlib import Path
+
+ROOT = Path(__file__).parent.parent
+DATA_DIR = ROOT / "data"
+EVENTS_DIR = DATA_DIR / "events"
+FEEDBACK_DIR = DATA_DIR / "feedback"
+PROFILE_DIR = DATA_DIR / "profile"
+PROFILE_FILE = PROFILE_DIR / "profile.json"
+ANSWERS_FILE = PROFILE_DIR / "answers.jsonl"
+
+LLAMA_URL = "http://localhost:8080/v1/chat/completions"
+
+def get_last_events(n=10) -> list[dict]:
+    today = datetime.now().strftime("%Y-%m-%d")
+    f = EVENTS_DIR / f"{today}.jsonl"
+    if not f.exists(): return []
+    
+    try:
+        lines = f.read_text().strip().split("\n")
+        events = []
+        for l in lines[-n:]:
+            if l.strip():
+                try: events.append(json.loads(l))
+                except: pass
+        return events
+    except:
+        return []
+
+def get_profile_summary():
+    if not PROFILE_FILE.exists():
+        return "New user, no profile data."
+    try:
+        profile = json.loads(PROFILE_FILE.read_text())
+        summary = []
+        if profile.get("preferences"):
+            summary.append(f"Preferences: {json.dumps(profile['preferences'])}")
+        if profile.get("avoid"):
+            summary.append(f"Avoid: {json.dumps(profile['avoid'])}")
+        if profile.get("context"):
+            summary.append(f"Context: {json.dumps(profile['context'])}")
+        return " | ".join(summary) if summary else "Empty profile."
+    except:
+        return "Error reading profile."
+
+def ask_llm(last_5_tokens, profile_summary):
+    user = subprocess.run(["whoami"], capture_output=True, text=True).stdout.strip()
+    system_prompt = (
+        f"You are Phantom, a personal AI OS observing {user}'s behavior.\n"
+        f"Based on recent activity: {last_5_tokens}\n"
+        f"And existing profile: {profile_summary}\n"
+        "Generate ONE short, specific question in French to better understand\n"
+        "this person's preferences, goals, or current state.\n"
+        "Max 15 words. No preamble. Just the question."
+    )
+    
+    payload = {
+        "messages": [{"role": "system", "content": system_prompt}],
+        "temperature": 0.7,
+        "max_tokens": 50
+    }
+    
+    try:
+        r = requests.post(LLAMA_URL, json=payload, timeout=10)
+        if r.status_code == 200:
+            return r.json()["choices"][0]["message"]["content"].strip().strip('"')
+    except Exception as e:
+        print(f"[INTERVIEWER] LLM Error: {e}")
+    return None
+
+def show_dialog(question):
+    script = f'display dialog "{question}" default answer "" with title "👻 Phantom te pose une question"'
+    try:
+        r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+        if "button returned:OK" in r.stdout:
+            # Extract text input
+            # Output format: button returned:OK, text returned:some answer
+            parts = r.stdout.strip().split("text returned:")
+            if len(parts) > 1:
+                return parts[1]
+    except:
+        pass
+    return None
+
+def save_answer(question, answer, context_tokens):
+    entry = {
+        "ts": datetime.now().isoformat(),
+        "question": question,
+        "answer": answer,
+        "context_tokens": context_tokens
+    }
+    with open(ANSWERS_FILE, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+def update_profile_with_insight(question, answer):
+    if not PROFILE_FILE.exists():
+        profile = {"preferences": {}, "avoid": {}, "context": {}, "action_feedback": {}}
+    else:
+        profile = json.loads(PROFILE_FILE.read_text())
+    
+    # Simple heuristic: if question mentions "préfères" or similar, add to preferences
+    # In a real scenario, we'd use the LLM to extract the insight.
+    # For now, let's just store it in context as "last_interaction"
+    profile["context"]["last_interaction"] = {"q": question, "a": answer, "ts": datetime.now().isoformat()}
+    
+    PROFILE_FILE.write_text(json.dumps(profile, indent=2))
+
+def check_rejected_actions():
+    # Read data/feedback/*.jsonl
+    rejected_counts = {}
+    for f in FEEDBACK_DIR.glob("*.jsonl"):
+        try:
+            for line in f.read_text().strip().split("\n"):
+                if not line: continue
+                entry = json.loads(line)
+                action = entry.get("action")
+                accepted = entry.get("accepted")
+                if not accepted:
+                    rejected_counts[action] = rejected_counts.get(action, 0) + 1
+        except:
+            continue
+    
+    if not rejected_counts:
+        return
+
+    # Check profile to see if we already asked today
+    profile = json.loads(PROFILE_FILE.read_text())
+    action_feedback = profile.get("action_feedback", {})
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    for action, count in rejected_counts.items():
+        last_asked = action_feedback.get(action, {}).get("last_asked")
+        if last_asked == today:
+            continue
+        
+        # Ask why
+        question = f"Tu as refusé {action} {count} fois. Pourquoi ?"
+        answer = show_dialog(question)
+        
+        if answer:
+            save_answer(question, answer, [])
+            if action not in action_feedback:
+                action_feedback[action] = {}
+            action_feedback[action].update({
+                "rejected": count,
+                "reason": answer,
+                "last_asked": today
+            })
+            profile["action_feedback"] = action_feedback
+            PROFILE_FILE.write_text(json.dumps(profile, indent=2))
+            break # Only ask one per poll
+
+def interviewer_loop():
+    print("👻 Phantom Interviewer started.")
+    last_question_time = 0
+    
+    while True:
+        try:
+            now = datetime.now()
+            hour = now.hour
+            
+            # Condition: Hour between 10 and 2 (10 AM to 2 AM)
+            # 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1
+            is_active_hours = (hour >= 10 or hour < 2)
+            
+            # Condition: No question in last 30 minutes
+            time_since_last = time.time() - last_question_time
+            is_cooldown_over = time_since_last > 1800 # 30 mins
+            
+            if is_active_hours and is_cooldown_over:
+                events = get_last_events(10)
+                # Need to tokenize to check tokens
+                # For simplicity, we'll check if the event data itself implies FOCUS:SHALLOW or SWITCH:FAST
+                # OR we can just use the tokens if they are already in the events (not likely in v2 yet)
+                # Wait, agent.py uses tokenize_event. Let's import it.
+                from tokenizer.tokenizer_v2 import tokenize_event
+                
+                last_5_tokens = []
+                for ev in events[-5:]:
+                    last_5_tokens.extend(tokenize_event(ev).split())
+                
+                trigger = any(t in ["FOCUS:SHALLOW", "SWITCH:FAST"] for t in last_5_tokens)
+                
+                if trigger:
+                    profile_summary = get_profile_summary()
+                    question = ask_llm(last_5_tokens, profile_summary)
+                    if question:
+                        answer = show_dialog(question)
+                        if answer:
+                            save_answer(question, answer, last_5_tokens)
+                            update_profile_with_insight(question, answer)
+                            last_question_time = time.time()
+            
+            # Also check rejected actions
+            check_rejected_actions()
+            
+            time.sleep(60)
+        except Exception as e:
+            print(f"[INTERVIEWER] Error: {e}")
+            time.sleep(60)
+
+if __name__ == "__main__":
+    interviewer_loop()
