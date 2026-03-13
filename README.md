@@ -17,7 +17,7 @@ Phantom is different: it observes your behavior continuously, builds a behaviora
                                     (inspired by X/Phoenix)
 ```
 
-The daemon captures ~15 behavioral signals every 5 seconds. The tokenizer converts them into a compact sequence language. A small transformer (128d, 4 layers, MLX) trains on these sequences and predicts your next action. The agent executes — or notifies — with a macOS confirmation dialog.
+The daemon captures ~15 behavioral signals every 5 seconds. The feature extractor normalizes them into 24-dimensional vectors. A two-tower model (LSTM user tower + action embeddings) scores all candidate actions simultaneously. The agent executes the top prediction — or notifies — with a macOS confirmation dialog.
 
 ## Signals captured
 
