@@ -51,13 +51,22 @@ class CandidateTower(nn.Module):
         # L2 Normalize
         return out / mx.linalg.norm(out, axis=-1, keepdims=True)
 
-def load_data(seq_len=512):
+def load_data(seq_len=512, feedback=None):
     X = []
     Y = []
     
     feature_files = sorted(FEATURES_DIR.glob("*.npy"))
     event_files = sorted(EVENTS_DIR.glob("*.jsonl"))
     
+    # Pre-process feedback if any
+    fb_map = {}
+    if feedback:
+        for entry in feedback:
+            ts = entry.get("ts")
+            if ts:
+                # Store by second-level precision if needed
+                fb_map[ts[:19]] = entry
+
     for f_feat, f_event in zip(feature_files, event_files):
         feats = np.load(f_feat)
         with open(f_event, "r") as jf:
@@ -113,6 +122,19 @@ def load_data(seq_len=512):
             if "slack" in app or "discord" in app or "telegram" in app or "whatsapp" in app:
                 label[ACTION_TO_ID["ACT:OPEN_COMM"]] = 1.0
 
+            # 3. OVERRIDE with Feedback (RLHF)
+            ts_key = e.get("timestamp", "")[:19]
+            if ts_key in fb_map:
+                fb = fb_map[ts_key]
+                action = fb.get("action")
+                accepted = fb.get("accepted")
+                if action in ACTION_TO_ID:
+                    idx = ACTION_TO_ID[action]
+                    if accepted:
+                        label[idx] = 1.0
+                    else:
+                        label[idx] = -1.0 # Weight/Label for rejection
+
             Y.append(label)
 
     return np.array(X), np.array(Y)
@@ -129,11 +151,17 @@ class TwoTower(nn.Module):
         action_embs = self.candidate_tower(all_actions)
         scores = user_emb @ action_embs.T
         logits = scores * 10.0
-        return nn.losses.binary_cross_entropy(logits, y).mean()
+        
+        # Handle negative labels if necessary
+        # BCE usually expects [0, 1]. If we use -1.0, it will treat it as 0.0 but 
+        # let's make it explicit if we want a custom penalty.
+        # Actually, let's just clip/transform y for BCE, but use the sign for penalty.
+        y_bce = mx.maximum(y, 0.0)
+        return nn.losses.binary_cross_entropy(logits, y_bce).mean()
 
-def train():
+def train(feedback=None):
     print("🧠 Training Two-Tower Recommender...")
-    X, Y = load_data()
+    X, Y = load_data(feedback=feedback)
     if len(X) == 0:
         print("❌ No data to train on.")
         return
