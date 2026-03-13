@@ -352,6 +352,21 @@ def get_window_layout():
     except Exception:
         return {"window_count_total": 0, "screens": 1}
 
+def get_ssid():
+    """Récupère le nom du réseau WiFi actuel"""
+    try:
+        # Sur macOS: networksetup -getairportnetwork en0
+        # Output type: Current Wi-Fi Network: NomDuReseau
+        r = subprocess.run(
+            ['networksetup', '-getairportnetwork', 'en0'],
+            capture_output=True, text=True, timeout=2
+        )
+        if "Current Wi-Fi Network:" in r.stdout:
+            return r.stdout.split("Current Wi-Fi Network:")[1].strip()
+        return "OFFLINE"
+    except Exception:
+        return "UNKNOWN"
+
 def get_system_metrics():
     """CPU, RAM, batterie, réseau"""
     try:
@@ -453,6 +468,7 @@ def main():
             app  = get_active_app()
             url  = get_browser_url(app) if app in BROWSERS else ""
             file = get_active_file(app)
+            ssid = get_ssid()
             
             # ── Actions ──
             actions = sensor.detect(app, file)
@@ -487,15 +503,16 @@ def main():
             focus = compute_focus_score(behavior, all_tabs or tab_count, window_count, app_switch_rate)
             
             # ── Détection changement de contexte ──
-            state_key = f"{app}|{url}|{file}"
+            state_key = f"{app}|{url}|{file}|{ssid}"
             
             if current_app is None:
                 current_app   = app
                 current_start = now
                 current_url   = url
                 current_file  = file
+                current_ssid  = ssid
             
-            elif state_key != f"{current_app}|{current_url}|{current_file}":
+            elif state_key != f"{current_app}|{current_url}|{current_file}|{current_ssid}":
                 duration = (now - current_start).total_seconds()
                 
                 if duration >= MIN_DURATION:
@@ -509,6 +526,7 @@ def main():
                         "app":       current_app,
                         "url":       current_url,
                         "file":      current_file,
+                        "ssid":      current_ssid,
                         
                         # ── Keyboard ──
                         "wpm":              behavior["wpm"],
@@ -556,6 +574,7 @@ def main():
                 current_start = now
                 current_url   = url
                 current_file  = file
+                current_ssid  = ssid
             
             time.sleep(POLL_INTERVAL)
         

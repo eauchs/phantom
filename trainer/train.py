@@ -29,13 +29,13 @@ VOCAB_FILE = Path(__file__).parent.parent / "data" / "vocab.json"
 
 # ── Hyperparams ────────────────────────────────────────
 CONFIG = {
-    "d_model":    64,
+    "d_model":    128,
     "n_heads":    4,
-    "n_layers":   2,
-    "seq_len":    16,
-    "batch_size": 32,
+    "n_layers":   4,
+    "seq_len":    32,
+    "batch_size": 64,
     "lr":         3e-4,
-    "epochs":     20,
+    "epochs":     30,
     "dropout":    0.1,
 }
 

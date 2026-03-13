@@ -40,6 +40,39 @@ def app_token(app):
     }
     return mapping.get(app, f"APP:OTHER")
 
+def project_token(app, file, url):
+    """Extrait un token de projet depuis le fichier ou l'URL"""
+    import re
+    
+    # 1. Via le chemin du fichier (IDEs)
+    if file:
+        # Cherche /nom-du-projet/ dans les chemins typiques
+        # On évite /Users/xxx/ ou /Desktop/
+        patterns = [
+            r'\/projects\/([\w-]+)\/',
+            r'\/dev\/([\w-]+)\/',
+            r'\/repos\/([\w-]+)\/',
+            r'\/([\w-]+)\/src\/',
+            r'^([\w-]+)\s—' # Format Xcode ou Cursor: "ProjectName — FileName"
+        ]
+        for p in patterns:
+            m = re.search(p, file, re.IGNORECASE)
+            if m: return f"PROJECT:{m.group(1).upper()}"
+            
+    # 2. Via l'URL (GitHub)
+    if url and "github.com" in url:
+        m = re.search(r'github\.com\/[\w-]+\/([\w-]+)', url)
+        if m: return f"PROJECT:{m.group(1).upper()}"
+        
+    return None
+
+def ssid_token(ssid):
+    if not ssid or ssid in ("OFFLINE", "UNKNOWN"):
+        return "NET:OFFLINE"
+    # Nettoyage simple du nom SSID pour le token
+    clean_ssid = "".join(c for c in ssid if c.isalnum() or c in ("-", "_")).upper()
+    return f"NET:{clean_ssid}"
+
 def url_token(url):
     if not url:
         return None
@@ -154,9 +187,22 @@ def tokenize_event(ev):
     # ── Context ──
     tokens.append(session_token(ev.get("hour", 12)))
     tokens.append(day_token(ev.get("weekday", "Monday")))
-    tokens.append(app_token(ev.get("app", "")))
     
-    u = url_token(ev.get("url", ""))
+    app  = ev.get("app", "")
+    file = ev.get("file", "")
+    url  = ev.get("url", "")
+    ssid = ev.get("ssid", "")
+    
+    tokens.append(app_token(app))
+    
+    # New: SSID context
+    tokens.append(ssid_token(ssid))
+    
+    # New: Project context (extract from file or url)
+    project = project_token(app, file, url)
+    if project: tokens.append(project)
+    
+    u = url_token(url)
     if u: tokens.append(u)
     
     tokens.append(duration_token(ev.get("duration", 0)))

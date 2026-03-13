@@ -22,7 +22,7 @@ ROOT       = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from tokenizer.tokenizer_v2 import tokenize_event
-from agent.feedback_logger import log_feedback
+from feedback_logger import log_feedback
 
 DATA_DIR   = ROOT / "data"
 EVENTS_DIR = DATA_DIR / "events"
@@ -32,7 +32,7 @@ MODELS_DIR = ROOT / "models"
 # ── Config ────────────────────────────────────────────
 POLL_INTERVAL   = 5
 CONFIDENCE_THRESHOLD = 0.55
-CONTEXT_WINDOW  = 6
+CONTEXT_WINDOW  = 10
 COOLDOWN        = 120
 
 # ── Notif macOS ───────────────────────────────────────
@@ -51,7 +51,7 @@ def load_vocab() -> dict:
     return data["token2id"]
 
 def predict(model, token2id: dict, id2token: dict, context: list[str], top_k=3):
-    seq_len = 16
+    seq_len = 32
     ids = [token2id.get(t, 1) for t in context]
     pad = seq_len - len(ids)
     ids = [0] * max(0, pad) + ids[-seq_len:]
@@ -78,11 +78,11 @@ def load_model(token2id):
         class PhantomTransformer(nn.Module):
             def __init__(self):
                 super().__init__()
-                self.embed     = nn.Embedding(vocab_size, 64)
-                self.pos_embed = nn.Embedding(16, 64)
-                self.layers    = [nn.TransformerEncoderLayer(64, 4, 256) for _ in range(2)]
-                self.norm      = nn.LayerNorm(64)
-                self.head      = nn.Linear(64, vocab_size)
+                self.embed     = nn.Embedding(vocab_size, 128)
+                self.pos_embed = nn.Embedding(32, 128)
+                self.layers    = [nn.TransformerEncoderLayer(128, 4, 512) for _ in range(4)]
+                self.norm      = nn.LayerNorm(128)
+                self.head      = nn.Linear(128, vocab_size)
 
             def __call__(self, x):
                 T = x.shape[1]
