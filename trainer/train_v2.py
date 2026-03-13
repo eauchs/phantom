@@ -33,7 +33,43 @@ def get_session_modifier():
     return 0.0, 0
 
 def get_qwen_reward(entry, session_mod=0.0):
-...
+    """
+    Call Qwen to score a feedback event.
+    """
+    system_prompt = (
+        "You are a reward model for a personal AI OS. "
+        "Analyze the behavioral context and return ONLY a JSON: "
+        "{\"reward\": float between -1.0 and 1.0, \"reason\": str}"
+    )
+    
+    # Build context payload
+    context = {
+        "action": entry.get("action"),
+        "accepted": entry.get("accepted"),
+        "ts": entry.get("ts"),
+        "context_tokens": entry.get("context_tokens", [])[-10:]
+    }
+    
+    payload = {
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": json.dumps(context)}
+        ],
+        "max_tokens": 500,
+        "temperature": 0.0
+    }
+    
+    try:
+        r = requests.post(LLAMA_URL, json=payload, timeout=30)
+        if r.status_code == 200:
+            content = r.json()["choices"][0]["message"]["content"].strip()
+            # Strip <think>...</think> tags
+            if "<think>" in content:
+                content = content.split("</think>")[-1].strip()
+            
+            # Find the JSON part
+            start = content.find("{")
+            end = content.rfind("}")
             if start != -1 and end != -1:
                 json_str = content[start:end+1]
                 data = json.loads(json_str)
