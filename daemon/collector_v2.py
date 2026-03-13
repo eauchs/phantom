@@ -77,9 +77,8 @@ def get_contextual_token(app_name, url):
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
-        "max_tokens": 20,
-        "temperature": 0.0,
-        "enable_thinking": False
+        "max_tokens": 200,
+        "temperature": 0.0
     }
     
     # ── Guard: verify user query is not empty ──
