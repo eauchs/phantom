@@ -7,6 +7,7 @@ import requests
 import random
 from datetime import datetime
 from pathlib import Path
+from agent.context_builder import build_context
 
 ROOT = Path(__file__).parent.parent
 DATA_DIR = ROOT / "data"
@@ -75,17 +76,20 @@ def ask_llm(last_5_tokens, profile_summary):
         return random.choice(FALLBACK_QUESTIONS)
 
     user = subprocess.run(["whoami"], capture_output=True, text=True).stdout.strip()
+    context = build_context()
+    
     system_prompt = (
         f"You are Phantom, a personal AI OS observing {user}'s behavior.\n"
-        f"Based on recent activity: {last_5_tokens}\n"
-        f"And existing profile: {profile_summary}\n"
         "Generate ONE short, specific question in French to better understand\n"
         "this person's preferences, goals, or current state.\n"
         "Max 15 words. No preamble. Just the question."
     )
     
     payload = {
-        "messages": [{"role": "system", "content": system_prompt}],
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": json.dumps(context)}
+        ],
         "temperature": 0.7,
         "max_tokens": 500
     }
