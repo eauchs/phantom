@@ -9,7 +9,6 @@ import subprocess
 import sys
 import threading
 import numpy as np
-import subprocess
 from pathlib import Path
 from datetime import datetime
 
@@ -21,6 +20,34 @@ MODELS = {
     "token2id": None,
     "id2token": None
 }
+
+# ── Import interviewer ──
+try:
+    from agent.interviewer import interviewer_loop
+except ImportError as e:
+    print(f"   ⚠️  Could not import interviewer: {e}")
+    interviewer_loop = None
+
+try:
+    import mlx.core as mx
+    import mlx.nn as nn
+    BACKEND = "mlx"
+except ImportError:
+    BACKEND = "numpy"
+
+ROOT       = Path(__file__).parent.parent
+sys.path.insert(0, str(ROOT))
+
+from tokenizer.tokenizer_v2 import tokenize_event
+from agent.feedback_logger import log_feedback
+
+DATA_DIR   = ROOT / "data"
+EVENTS_DIR = DATA_DIR / "events"
+FEATURES_DIR = DATA_DIR / "features"
+VOCAB_FILE = DATA_DIR / "vocab.json"
+MODELS_DIR = ROOT / "models"
+PROFILE_FILE = DATA_DIR / "profile" / "profile.json"
+TOKEN_INJECTION_FILE = DATA_DIR / "profile" / "injected_tokens.json"
 
 # ── Auto-Retrain Loop ──────────────────────────────────
 def auto_retrain_loop():
@@ -67,6 +94,7 @@ def auto_retrain_loop():
             print(f"[RETRAIN ERROR] {e}")
             time.sleep(600)
 
+# ── Profile Loading ───────────────────────────────────
 def load_profile():
     if not PROFILE_FILE.exists():
         return {"preferences": {}, "avoid": {}, "context": {}, "action_feedback": {}}
@@ -482,21 +510,21 @@ def main():
                 if token in {"<PAD>", "<UNK>", "<BOS>", "<EOS>"}:
                     continue
 
-                now = time.time()
-                if token in last_notif and now - last_notif[token] < COOLDOWN:
+                now_ts = time.time()
+                if token in last_notif and now_ts - last_notif[token] < COOLDOWN:
                     continue
 
                 # ── Exécution Proactive (Actions) ──
                 if token.startswith("ACT:") and confidence > 0.70:
                     executed = execute_action(token, context_tokens)
                     if executed:
-                        last_notif[token] = now
+                        last_notif[token] = now_ts
                         break
 
                 # ── Notification Simple (Observations) ──
                 title, message = token_to_readable(token)
                 notify(title, message, subtitle=f"👻 {confidence:.0%} de confiance ({'TT' if tt_preds else 'Trans'})")
-                last_notif[token] = now
+                last_notif[token] = now_ts
                 break
 
             time.sleep(POLL_INTERVAL)
