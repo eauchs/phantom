@@ -128,16 +128,27 @@ if BACKEND == "mlx":
             h = self.norm(h)
             return self.head(h[:, -1, :])
 
-    def train_mlx(X, Y, vocab_size, config):
+    def train_mlx(X, Y, vocab_size, config, vocab):
         model  = PhantomTransformer(
             vocab_size, config["d_model"], config["n_heads"],
             config["n_layers"], config["seq_len"]
         )
         optimizer = optim.AdamW(learning_rate=config["lr"])
 
+        # ── Weighting ──────────────────────────
+        # Les tokens ACT:* ont un poids de 3.0
+        weights = np.ones(vocab_size, dtype=np.float32)
+        for token, idx in vocab.token2id.items():
+            if token.startswith("ACT:"):
+                weights[idx] = 3.0
+        weights_mx = mx.array(weights)
+
         def loss_fn(model, x, y):
             logits = model(x)
-            return nn.losses.cross_entropy(logits, y).mean()
+            # Utilisation des poids par classe
+            loss = nn.losses.cross_entropy(logits, y)
+            w = weights_mx[y]
+            return (loss * w).mean()
 
         loss_and_grad = nn.value_and_grad(model, loss_fn)
         X_mx = mx.array(X)
@@ -226,7 +237,7 @@ def main():
 
     t0 = time.time()
     if BACKEND == "mlx":
-        model = train_mlx(X, Y, len(vocab), CONFIG)
+        model = train_mlx(X, Y, len(vocab), CONFIG, vocab)
     else:
         model = train_numpy(X, Y, len(vocab), CONFIG)
     print(f"   Training time: {time.time()-t0:.1f}s")
