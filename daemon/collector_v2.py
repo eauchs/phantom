@@ -15,6 +15,7 @@ from collections import deque
 
 import psutil
 import os
+import requests
 
 try:
     from pynput import keyboard as kb, mouse as ms
@@ -34,10 +35,60 @@ except ImportError:
 ROOT        = Path(__file__).parent.parent
 DATA_DIR    = ROOT / "data" / "events"
 LOG_DIR     = ROOT / "logs"
+CACHE_FILE  = ROOT / "data" / "tokens_cache.json"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-POLL_INTERVAL = 5       # secondes entre chaque snapshot
+LLAMA_URL = "http://127.0.0.1:8080/v1/chat/completions"
+
+# ── Contextual Tokenizer ───────────────────────────────
+TOKENS_CACHE = {}
+if CACHE_FILE.exists():
+    try:
+        TOKENS_CACHE = json.loads(CACHE_FILE.read_text())
+    except:
+        pass
+
+def get_contextual_token(app_name, url):
+    cache_key = f"{app_name}|{url}"
+    if cache_key in TOKENS_CACHE:
+        return TOKENS_CACHE[cache_key]
+
+    system_prompt = (
+        "You are a behavioral tokenizer. Given this app/url, "
+        "return ONE token in format CATEGORY:NAME (uppercase, no spaces). "
+        "Examples: WEB:NOTION, APP:FIGMA, WEB:ARXIV "
+        "Return ONLY the token, nothing else."
+    )
+    user_prompt = f"app={app_name} url={url}"
+
+    payload = {
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "max_tokens": 20,
+        "temperature": 0.0
+    }
+
+    try:
+        r = requests.post(LLAMA_URL, json=payload, timeout=5)
+        if r.status_code == 200:
+            content = r.json()["choices"][0]["message"]["content"].strip()
+            if "<think>" in content:
+                content = content.split("</think>")[-1].strip()
+
+            token = content.split()[0].upper() if content else None
+            if token and ":" in token:
+                TOKENS_CACHE[cache_key] = token
+                CACHE_FILE.write_text(json.dumps(TOKENS_CACHE, indent=2))
+                return token
+    except:
+        pass
+    return None
+
+# ── State partagé thread-safe ───────────────────────────
+
 MIN_DURATION  = 5       # durée min pour logguer un event
 BROWSERS      = {"Google Chrome", "Safari", "Arc", "Firefox", "Brave Browser"}
 
@@ -599,6 +650,7 @@ def main():
                         "dark_mode": current_dark,
                         "bat_percent": current_bat_p,
                         "bat_charging": current_bat_c,
+                        "contextual_token": get_contextual_token(current_app, current_url),
                         
                         # ── Keyboard ──
                         "wpm":              behavior["wpm"],
