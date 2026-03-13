@@ -307,6 +307,54 @@ def get_active_file(app):
     '''
     return run_applescript(script)
 
+def get_file_ext(title):
+    if not title or "." not in title:
+        return "none"
+    ext = title.split(".")[-1].lower().strip()
+    # Nettoyage si le titre contient des suffixes (ex: "main.py — phantom")
+    ext = ext.split(" ")[0]
+    mapping = {
+        "py": "py", "cpp": "cpp", "hpp": "cpp", "c": "cpp", "h": "cpp",
+        "md": "md", "markdown": "md",
+        "json": "json", "yaml": "json", "yml": "json",
+        "tsx": "tsx", "ts": "tsx", "js": "tsx", "jsx": "tsx", "html": "tsx", "css": "tsx"
+    }
+    return mapping.get(ext, "other")
+
+def get_clipboard_type():
+    """Détecte le type de contenu du presse-papiers sans loguer le contenu"""
+    try:
+        # pbpaste pour le texte, sips/osascript pour le reste
+        content = run_applescript('the clipboard')
+        if not content:
+            # Vérifier si c'est une image (via AppleScript)
+            img_check = run_applescript('try\nget (the clipboard as «class PNGf»)\nreturn "image"\non error\nreturn "empty"\nend try')
+            return img_check if img_check == "image" else "empty"
+        
+        c = content.strip()
+        if not c: return "empty"
+        
+        # URL detection
+        if c.startswith(("http://", "https://", "www.")):
+            return "url"
+        
+        # Code detection (minimal heuristics)
+        code_keywords = {"def ", "function", "import ", "class ", "const ", "let ", "var ", "void ", "public:", "private:", "extern "}
+        if any(kw in c for kw in code_keywords) or ("{" in c and "}" in c):
+            return "code"
+            
+        return "text"
+    except Exception:
+        return "empty"
+
+def is_dark_mode():
+    """Détecte si macOS est en mode sombre"""
+    try:
+        res = run_applescript('tell application "System Events" to tell appearance preferences to get dark mode')
+        return res.lower() == "true"
+    except Exception:
+        return False
+
 def get_clipboard_hash():
     script = 'the clipboard'
     content = run_applescript(script)
@@ -468,7 +516,10 @@ def main():
             app  = get_active_app()
             url  = get_browser_url(app) if app in BROWSERS else ""
             file = get_active_file(app)
+            ext  = get_file_ext(file)
             ssid = get_ssid()
+            clip = get_clipboard_type()
+            dark = is_dark_mode()
             
             # ── Actions ──
             actions = sensor.detect(app, file)
@@ -503,16 +554,19 @@ def main():
             focus = compute_focus_score(behavior, all_tabs or tab_count, window_count, app_switch_rate)
             
             # ── Détection changement de contexte ──
-            state_key = f"{app}|{url}|{file}|{ssid}"
+            state_key = f"{app}|{url}|{file}|{ssid}|{clip}|{dark}"
             
             if current_app is None:
                 current_app   = app
                 current_start = now
                 current_url   = url
                 current_file  = file
+                current_ext   = ext
                 current_ssid  = ssid
+                current_clip  = clip
+                current_dark  = dark
             
-            elif state_key != f"{current_app}|{current_url}|{current_file}|{current_ssid}":
+            elif state_key != f"{current_app}|{current_url}|{current_file}|{current_ssid}|{current_clip}|{current_dark}":
                 duration = (now - current_start).total_seconds()
                 
                 if duration >= MIN_DURATION:
@@ -526,7 +580,10 @@ def main():
                         "app":       current_app,
                         "url":       current_url,
                         "file":      current_file,
+                        "active_file_ext": current_ext,
                         "ssid":      current_ssid,
+                        "clipboard_type": current_clip,
+                        "dark_mode": current_dark,
                         
                         # ── Keyboard ──
                         "wpm":              behavior["wpm"],
@@ -574,7 +631,10 @@ def main():
                 current_start = now
                 current_url   = url
                 current_file  = file
+                current_ext   = ext
                 current_ssid  = ssid
+                current_clip  = clip
+                current_dark  = dark
             
             time.sleep(POLL_INTERVAL)
         
