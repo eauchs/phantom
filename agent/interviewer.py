@@ -61,7 +61,7 @@ def get_profile_summary():
     except:
         return "Error reading profile."
 
-def check_profile_summary():
+def ask_llm(last_5_tokens, profile_summary):
 
     if not check_health():
         print("[INTERVIEWER] llama-server not healthy, using fallback.")
@@ -109,23 +109,14 @@ def check_profile_summary():
         if res:
             content = res["choices"][0]["message"]["content"]
             # Extract between <think> tags if present
-
-                if "<think>" in content and "</think>" in content:
-                    content = content.split("</think>")[-1].strip()
-                elif "</think>" in content:
-                    content = content.split("</think>")[-1].strip()
-                
-                return content.strip().strip('"')
-        except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError) as e:
-            if attempt == 0:
-                print(f"[INTERVIEWER] Connection error, retrying in 10s... ({e})")
-                time.sleep(10)
-                continue
-            else:
-                print(f"[INTERVIEWER] LLM Error after retry: {e}")
-        except Exception as e:
-            print(f"[INTERVIEWER] LLM Unexpected Error: {e}")
-            break
+            if "<think>" in content and "</think>" in content:
+                content = content.split("</think>")[-1].strip()
+            elif "</think>" in content:
+                content = content.split("</think>")[-1].strip()
+            
+            return content.strip().strip('"')
+    except Exception as e:
+        print(f"[INTERVIEWER] LLM Error: {e}")
             
     return random.choice(FALLBACK_QUESTIONS)
 
