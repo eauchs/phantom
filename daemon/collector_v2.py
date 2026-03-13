@@ -77,7 +77,7 @@ def get_contextual_token(app_name, url):
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
-        "max_tokens": 200,
+        "max_tokens": -1,
         "temperature": 0.0
     }
     
@@ -91,7 +91,7 @@ def get_contextual_token(app_name, url):
         print(f"  role={m['role']} content_len={len(str(m.get('content','')))}")
 
     try:
-        res = call_qwen(payload, timeout=30)
+        res = call_qwen(payload, timeout=600)
         if res:
             content = res["choices"][0]["message"]["content"].strip()
             if "<think>" in content:

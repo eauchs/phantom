@@ -69,10 +69,10 @@ def get_qwen_reward(entry, session_mod=0.0):
     print(f"[LLM DEBUG] get_qwen_reward sending {len(payload['messages'])} messages")
     for m in payload["messages"]:
         print(f"  role={m['role']} content_len={len(str(m.get('content','')))}")
-try:
-    res = call_qwen(payload, timeout=120)
-    if res:
-        content = res["choices"][0]["message"]["content"]
+    try:
+        res = call_qwen(payload, timeout=600)
+        if res:
+            content = res["choices"][0]["message"]["content"]
         # Extraire le score JSON
 
             # Strip <think>...</think> tags

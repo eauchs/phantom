@@ -6,7 +6,7 @@ LLAMA_URL = "http://127.0.0.1:8080/v1/chat/completions"
 HEALTH_URL = "http://127.0.0.1:8080/health"
 _semaphore = threading.Semaphore(4)  # match -np 4
 
-def call_qwen(payload: Dict, timeout=120) -> Optional[Dict]:
+def call_qwen(payload: Dict, timeout=600) -> Optional[Dict]:
     """
     Thread-safe Qwen call. Waits for a free slot (max 4 concurrent).
     Returns parsed response dict or None on failure.
