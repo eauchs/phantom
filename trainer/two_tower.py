@@ -127,13 +127,16 @@ def load_data(seq_len=512, feedback=None):
             if ts_key in fb_map:
                 fb = fb_map[ts_key]
                 action = fb.get("action")
+                reward = fb.get("reward")
                 accepted = fb.get("accepted")
                 if action in ACTION_TO_ID:
                     idx = ACTION_TO_ID[action]
-                    if accepted:
+                    if reward is not None:
+                        label[idx] = reward
+                    elif accepted:
                         label[idx] = 1.0
                     else:
-                        label[idx] = -1.0 # Weight/Label for rejection
+                        label[idx] = -1.0 # Fallback rejection
 
             Y.append(label)
 
@@ -152,12 +155,14 @@ class TwoTower(nn.Module):
         scores = user_emb @ action_embs.T
         logits = scores * 10.0
         
-        # Handle negative labels if necessary
-        # BCE usually expects [0, 1]. If we use -1.0, it will treat it as 0.0 but 
-        # let's make it explicit if we want a custom penalty.
-        # Actually, let's just clip/transform y for BCE, but use the sign for penalty.
-        y_bce = mx.maximum(y, 0.0)
-        return nn.losses.binary_cross_entropy(logits, y_bce).mean()
+        # RLHF Reward Weights
+        # y contains rewards from -1.0 to 1.0
+        # Labels are sign(y), weights are abs(y)
+        y_label = mx.where(y > 0, 1.0, 0.0)
+        y_weight = mx.abs(y)
+        
+        loss = nn.losses.binary_cross_entropy(logits, y_label)
+        return (loss * y_weight).mean()
 
 def train(feedback=None):
     print("🧠 Training Two-Tower Recommender...")
