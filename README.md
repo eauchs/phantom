@@ -52,6 +52,27 @@ When the model predicts an `ACT:*` token with >70% confidence, Phantom asks for 
 - **Action** — osascript, subprocess, macOS native dialogs
 - **Feedback** — JSONL reward log for future RL loop
 
+## 📊 Status
+
+- **Events captured**: 1,142+ behavior snapshots
+- **Vocabulary**: 85 unique behavioral tokens
+- **Architecture**: Two-Tower Recommender (MLX) + Behavioral Transformer
+- **RLHF**: Active Interviewer loop with Qwen-122B Reward Model (v2.2)
+
+## 🧠 Advanced Features (v2.2)
+
+### 👻 Proactive Interviewer
+Phantom detects "Focus: Shallow" or "Switch: Fast" moments to trigger a local dialogue via `osascript`. It asks targeted questions to refine your profile.
+
+### 🏆 Qwen Reward Model
+Instead of binary feedback, all user interactions are scored by a local **Qwen-122B** instance. 
+- **Thinking tags**: Automatically strips `<think>` blocks for clean JSON parsing.
+- **Weighted Training**: Rewards (-1.0 to 1.0) are used as sample weights in the BCE loss for the Two-Tower model.
+- **NLP Context**: Interviewer answers are parsed into structured tokens (`PROJECT:X`, `CONTEXT:Y`) and injected into the Transformer's context window.
+
+### ⚙️ Auto-Retrain & Hot Reload
+A background thread in `agent.py` monitors feedback. Every 2 hours, it triggers a full retraining of the model suite and reloads weights into memory without interrupting the agent.
+
 ## Structure
 ```
 phantom/
@@ -59,15 +80,13 @@ phantom/
 ├── trainer/      
 │   ├── feature_extractor.py  # raw events → normalized features
 │   ├── two_tower.py          # MLX Two-Tower model definition
-│   └── train_v2.py           # V2.1 orchestrator
-├── agent/        # agent.py (Two-Tower + fallback) + feedback_logger.py
+│   └── train_v2.py           # V2.2 orchestrator + RLHF Reward Model
+├── agent/        
+│   ├── agent.py          # Two-Tower + transformer + auto-retrain
+│   ├── interviewer.py    # Proactive RLHF dialogue loop
+│   └── context_builder.py # Centralized Qwen context manager
 └── data/         # events/, features/, feedback/ (gitignored)
 ```
-
-## Status
-
-V2.1 live — Two-Tower recommender in training (924 events, overfitting expected until 5000+).
-Legacy transformer (loss: 0.45) active as fallback.
 
 ---
 
