@@ -33,9 +33,9 @@ CONFIG = {
     "n_heads":    4,
     "n_layers":   4,
     "seq_len":    32,
-    "batch_size": 32,
+    "batch_size": 128,
     "lr":         3e-4,
-    "epochs":     5,
+    "epochs":     30,
     "dropout":    0.1,
 }
 
