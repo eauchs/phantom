@@ -33,9 +33,9 @@ CONFIG = {
     "n_heads":    4,
     "n_layers":   4,
     "seq_len":    32,
-    "batch_size": 64,
+    "batch_size": 32,
     "lr":         3e-4,
-    "epochs":     30,
+    "epochs":     5,
     "dropout":    0.1,
 }
 
@@ -170,8 +170,14 @@ if BACKEND == "mlx":
                 mx.eval(model.parameters(), optimizer.state)
                 losses.append(float(loss))
             avg = np.mean(losses)
+            
+            # Save checkpoint after each epoch to avoid mismatch
+            suffix = ".npz" if BACKEND == "mlx" else ".npy"
+            model_path = MODELS_DIR / f"phantom_latest{suffix}"
+            model.save_weights(str(model_path))
+            
             if (epoch + 1) % 5 == 0 or epoch == 0:
-                print(f"   Epoch {epoch+1:3d}/{config['epochs']} | loss {avg:.4f}")
+                print(f"   Epoch {epoch+1:3d}/{config['epochs']} | loss {avg:.4f} | Saved.")
         return model
 
 # ── Numpy fallback ─────────────────────────────────────
