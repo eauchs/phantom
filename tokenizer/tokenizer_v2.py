@@ -112,7 +112,8 @@ def url_token(url):
     if "docs.google"    in u: return "WEB:GDOCS"
     if "mail.google"    in u: return "WEB:GMAIL"
     if "huggingface"    in u: return "WEB:HUGGINGFACE"
-    if "deezer"         in u or "spotify" in u: return "WEB:MUSIC"
+    if "deezer"         in u: return "WEB:DEEZER"
+    if "spotify"        in u: return "WEB:MUSIC"
     if "perplexity"     in u: return "WEB:PERPLEXITY"
     return "WEB:OTHER"
 
