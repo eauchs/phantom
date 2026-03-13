@@ -56,6 +56,18 @@ def get_feedback_history(n=5):
         if len(feedback) >= n: break
     return feedback
 
+def get_last_event():
+    today = datetime.now().strftime("%Y-%m-%d")
+    f = EVENTS_DIR / f"{today}.jsonl"
+    if not f.exists(): return {}
+    try:
+        lines = f.read_text().strip().split("\n")
+        if lines:
+            return json.loads(lines[-1])
+    except:
+        pass
+    return {}
+
 from agent.session_state import load_state
 
 def build_context() -> dict:
@@ -67,12 +79,14 @@ def build_context() -> dict:
             pass
             
     now = datetime.now()
+    last_event = get_last_event()
     
     return {
         "profile": profile,
         "session": load_state(),
         "session_modifier": profile.get("current_session_modifier", {}).get("value", 0.0),
         "last_10_tokens": get_last_tokens(10),
+        "window_title": last_event.get("window_title", ""),
         "current_hour": now.hour,
         "weekday": now.strftime("%A"),
         "recent_answers": get_recent_answers(3),

@@ -85,6 +85,7 @@ def ask_llm(last_5_tokens, profile_summary):
 
     system_prompt = (
         f"You are Phantom, a personal AI OS observing {user}'s behavior.\n"
+        f"Current window: {context.get('window_title', 'Unknown')}\n"
         "Generate ONE short, specific question in French to better understand\n"
         "this person's preferences, goals, or current state.\n"
         "Max 15 words. No preamble. Just the question."

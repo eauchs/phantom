@@ -381,6 +381,36 @@ def get_active_file(app):
     '''
     return run_applescript(script)
 
+def get_raw_window_title(app):
+    """Gets the raw window title of the frontmost window of the active app"""
+    script = f'''
+    tell application "System Events"
+        tell process "{app}"
+            try
+                return name of window 1
+            on error
+                return ""
+            end try
+        end tell
+    end tell
+    '''
+    title = run_applescript(script)
+    if not title:
+        # Fallback for apps that don't support 'name' but have 'AXTitle'
+        script = f'''
+        tell application "System Events"
+            tell process "{app}"
+                try
+                    return value of attribute "AXTitle" of window 1
+                on error
+                    return ""
+                end try
+            end tell
+        end tell
+        '''
+        title = run_applescript(script)
+    return title[:100] if title else ""
+
 def get_file_ext(title):
     if not title or "." not in title:
         return "none"
@@ -578,6 +608,7 @@ def main():
     current_start = None
     current_url   = ""
     current_file  = ""
+    current_window_title = ""
     current_ext   = "none"
     current_ssid  = "UNKNOWN"
     current_clip  = "empty"
@@ -596,6 +627,7 @@ def main():
             app  = get_active_app()
             url  = get_browser_url(app) if app in BROWSERS else ""
             file = get_active_file(app)
+            window_title = get_raw_window_title(app)
             ext  = get_file_ext(file)
             ssid = get_ssid()
             clip = get_clipboard_type()
@@ -639,13 +671,14 @@ def main():
             bat_c = bat["plugged"] if bat else True
 
             # ── Détection changement de contexte ──
-            state_key = f"{app}|{url}|{file}|{ssid}|{clip}|{dark}|{bat_c}"
+            state_key = f"{app}|{url}|{file}|{window_title}|{ssid}|{clip}|{dark}|{bat_c}"
             
             if current_app is None:
                 current_app   = app
                 current_start = now
                 current_url   = url
                 current_file  = file
+                current_window_title = window_title
                 current_ext   = ext
                 current_ssid  = ssid
                 current_clip  = clip
@@ -653,7 +686,7 @@ def main():
                 current_bat_p = bat_p
                 current_bat_c = bat_c
             
-            elif state_key != f"{current_app}|{current_url}|{current_file}|{current_ssid}|{current_clip}|{current_dark}|{current_bat_c}":
+            elif state_key != f"{current_app}|{current_url}|{current_file}|{current_window_title}|{current_ssid}|{current_clip}|{current_dark}|{current_bat_c}":
                 duration = (now - current_start).total_seconds()
                 
                 if duration >= MIN_DURATION:
@@ -667,6 +700,7 @@ def main():
                         "app":       current_app,
                         "url":       current_url,
                         "file":      current_file,
+                        "window_title": current_window_title,
                         "active_file_ext": current_ext,
                         "ssid":      current_ssid,
                         "clipboard_type": current_clip,
@@ -721,6 +755,7 @@ def main():
                 current_start = now
                 current_url   = url
                 current_file  = file
+                current_window_title = window_title
                 current_ext   = ext
                 current_ssid  = ssid
                 current_clip  = clip
