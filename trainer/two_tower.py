@@ -32,10 +32,10 @@ class UserTower(nn.Module):
     def __call__(self, x):
         # x: (batch, seq_len, input_dim)
         h = nn.relu(self.fc1(x))
-        # LSTM in MLX returns (h_seq, (h_last, c_last))
-        _, (h_last, _) = self.lstm(h)
-        # h_last is (num_layers, batch, output_dim) -> take last layer
-        h_last = h_last[-1]
+        # LSTM in MLX returns (h_seq, c_seq) for 3D inputs
+        h_seq, _ = self.lstm(h)
+        # take last hidden state
+        h_last = h_seq[:, -1, :]
         out = self.fc2(h_last)
         # L2 Normalize
         return out / mx.linalg.norm(out, axis=-1, keepdims=True)
@@ -117,6 +117,20 @@ def load_data(seq_len=512):
 
     return np.array(X), np.array(Y)
 
+class TwoTower(nn.Module):
+    def __init__(self, user_tower, candidate_tower):
+        super().__init__()
+        self.user_tower = user_tower
+        self.candidate_tower = candidate_tower
+
+    def __call__(self, x, y):
+        user_emb = self.user_tower(x)
+        all_actions = mx.arange(N_ACTIONS)
+        action_embs = self.candidate_tower(all_actions)
+        scores = user_emb @ action_embs.T
+        logits = scores * 10.0
+        return nn.losses.binary_cross_entropy(logits, y).mean()
+
 def train():
     print("🧠 Training Two-Tower Recommender...")
     X, Y = load_data()
@@ -124,31 +138,11 @@ def train():
         print("❌ No data to train on.")
         return
 
-    user_tower = UserTower()
-    candidate_tower = CandidateTower(N_ACTIONS)
+    model = TwoTower(UserTower(), CandidateTower(N_ACTIONS))
     
     # Optimizer
-    params = list(user_tower.parameters()) + list(candidate_tower.parameters())
     optimizer = optim.AdamW(learning_rate=1e-3)
-
-    def loss_fn(model_u, model_c, x, y):
-        user_emb = model_u(x) # (batch, 256)
-        all_actions = mx.arange(N_ACTIONS)
-        action_embs = model_c(all_actions) # (N_ACTIONS, 256)
-        
-        # Scores: (batch, N_ACTIONS)
-        scores = user_emb @ action_embs.T
-        
-        # Multi-label BCE
-        # nn.losses.binary_cross_entropy(logits, targets)
-        # Note: scores are already normalized, but BCE usually expects logits or probs.
-        # Since we use dot product of normalized vectors, scores are in [-1, 1].
-        # We can scale them (temperature) or just use them as is.
-        # Let's use a small temperature or scale up.
-        logits = scores * 10.0
-        return nn.losses.binary_cross_entropy(logits, y).mean()
-
-    loss_and_grad = nn.value_and_grad(user_tower, loss_fn)
+    loss_and_grad = nn.value_and_grad(model, lambda m, x, y: m(x, y))
     
     batch_size = 32
     epochs = 50
@@ -162,46 +156,24 @@ def train():
             xb = mx.array(X[indices])
             yb = mx.array(Y[indices])
             
-            # We need to pass both models to grad
-            # But value_and_grad only takes one model by default if we use it like this.
-            # We can use a container model.
-            
-            def combined_loss(params_list, x, y):
-                # This is more complex in MLX if we don't use a Module.
-                # Let's wrap them.
-                pass
-            
-            # Simple way: just update them together
-            loss, grads = nn.value_and_grad(user_tower, 
-                lambda m, x, y: loss_fn(m, candidate_tower, x, y))(user_tower, xb, yb)
-            
-            # We also need grads for candidate_tower
-            loss_c, grads_c = nn.value_and_grad(candidate_tower,
-                lambda m, x, y: loss_fn(user_tower, m, x, y))(candidate_tower, xb, yb)
-            
-            optimizer.update(user_tower, grads)
-            optimizer.update(candidate_tower, grads_c)
-            
-            mx.eval(user_tower.parameters(), candidate_tower.parameters(), optimizer.state)
+            loss, grads = loss_and_grad(model, xb, yb)
+            optimizer.update(model, grads)
+            mx.eval(model.parameters(), optimizer.state)
             losses.append(float(loss))
             
         if (epoch + 1) % 5 == 0 or epoch == 0:
             print(f"   Epoch {epoch+1:2d}/{epochs} | Loss: {np.mean(losses):.4f}")
 
     # Save weights
-    weights = {}
-    for k, v in user_tower.parameters().items():
-        weights[f"user_tower.{k}"] = v
-    for k, v in candidate_tower.parameters().items():
-        weights[f"candidate_tower.{k}"] = v
-    
-    mx.savez(str(MODELS_DIR / "two_tower.npz"), **weights)
+    model.save_weights(str(MODELS_DIR / "two_tower.npz"))
     print(f"✅ Model saved to {MODELS_DIR / 'two_tower.npz'}")
 
     # Print predictions for last event
-    last_x = mx.array([X[-1]])
-    user_emb = user_tower(last_x)
-    action_embs = candidate_tower(mx.arange(N_ACTIONS))
+    last_x = mx.array(X[-1:][0])
+    # add batch dim
+    last_x = mx.array(np.array([X[-1]]))
+    user_emb = model.user_tower(last_x)
+    action_embs = model.candidate_tower(mx.arange(N_ACTIONS))
     scores = (user_emb @ action_embs.T)[0]
     probs = mx.sigmoid(scores * 10.0).tolist()
     top = sorted(enumerate(probs), key=lambda x: -x[1])[:5]
