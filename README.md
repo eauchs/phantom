@@ -15,7 +15,7 @@ Phantom is different: it observes your behavior continuously, builds a behaviora
  observe     sequences     MLX train      act + feedback
 ```
 
-The daemon captures ~15 behavioral signals every 5 seconds. The tokenizer converts them into a compact sequence language. A small transformer (64d, 2 layers, MLX) trains on these sequences and predicts your next action. The agent executes — or notifies — with a macOS confirmation dialog.
+The daemon captures ~15 behavioral signals every 5 seconds. The tokenizer converts them into a compact sequence language. A small transformer (128d, 4 layers, MLX) trains on these sequences and predicts your next action. The agent executes — or notifies — with a macOS confirmation dialog.
 
 ## Signals captured
 
@@ -34,6 +34,7 @@ SESSION:* DAY:* APP:* WEB:* DUR:*
 TYPING:* ERROR:* MOUSE:* TABS:* WIN:*
 CPU:* FOCUS:* SWITCH:* NET:*
 ACT:OPEN_* ACT:GIT_* ACT:FILE_*
+CLIP:* FILE:* MODE:* BAT:*
 ```
 
 ## Action layer
@@ -61,7 +62,7 @@ phantom/
 ## Status
 
 Currently in active self-training. Retrains daily as behavioral data accumulates.  
-Loss: 0.55 → target <0.30 with 1000+ sequences.
+Loss: 0.45 → target <0.30 with 5000+ sequences.
 
 ---
 

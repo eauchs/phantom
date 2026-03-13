@@ -504,6 +504,12 @@ def main():
     current_start = None
     current_url   = ""
     current_file  = ""
+    current_ext   = "none"
+    current_ssid  = "UNKNOWN"
+    current_clip  = "empty"
+    current_dark  = False
+    current_bat_p = 100
+    current_bat_c = True
     
     app_switch_times = deque(maxlen=20)  # pour calculer switch rate
     last_net_bytes   = 0
@@ -555,11 +561,11 @@ def main():
             
             # ── Battery state ──
             bat = sys_metrics.get("battery")
-            bat_percent = bat["percent"] if bat else 100
-            bat_charging = bat["plugged"] if bat else True
+            bat_p = bat["percent"] if bat else 100
+            bat_c = bat["plugged"] if bat else True
 
             # ── Détection changement de contexte ──
-            state_key = f"{app}|{url}|{file}|{ssid}|{clip}|{dark}|{bat_charging}"
+            state_key = f"{app}|{url}|{file}|{ssid}|{clip}|{dark}|{bat_c}"
             
             if current_app is None:
                 current_app   = app
@@ -570,7 +576,8 @@ def main():
                 current_ssid  = ssid
                 current_clip  = clip
                 current_dark  = dark
-                current_bat_c = bat_charging
+                current_bat_p = bat_p
+                current_bat_c = bat_c
             
             elif state_key != f"{current_app}|{current_url}|{current_file}|{current_ssid}|{current_clip}|{current_dark}|{current_bat_c}":
                 duration = (now - current_start).total_seconds()
@@ -590,7 +597,7 @@ def main():
                         "ssid":      current_ssid,
                         "clipboard_type": current_clip,
                         "dark_mode": current_dark,
-                        "bat_percent": bat_percent,
+                        "bat_percent": current_bat_p,
                         "bat_charging": current_bat_c,
                         
                         # ── Keyboard ──
@@ -643,7 +650,8 @@ def main():
                 current_ssid  = ssid
                 current_clip  = clip
                 current_dark  = dark
-                current_bat_c = bat_charging
+                current_bat_p = bat_p
+                current_bat_c = bat_c
             
             time.sleep(POLL_INTERVAL)
         
