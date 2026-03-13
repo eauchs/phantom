@@ -13,22 +13,25 @@ Phantom is different: it observes your behavior continuously, builds a behaviora
 ```
 [Daemon] → [Feature Extractor] → [Two-Tower Model] → [Agent]
  observe     raw normalized         LSTM user tower     act + feedback
-             features (24d)       + action embeddings
+             features (24d)       + action embeddings   + interviewer RLHF loop
                                     (inspired by X/Phoenix)
 ```
 
-The daemon captures ~15 behavioral signals every 5 seconds. The feature extractor normalizes them into 24-dimensional vectors. A two-tower model (LSTM user tower + action embeddings) scores all candidate actions simultaneously. The agent executes the top prediction — or notifies — with a macOS confirmation dialog.
+The daemon captures ~15 behavioral signals every 5 seconds, including window titles for rich contextual grounding. The feature extractor normalizes them into 24-dimensional vectors. A two-tower model (LSTM user tower + action embeddings) scores all candidate actions simultaneously. The agent maintains session continuity, executes the top prediction — or notifies — with a macOS confirmation dialog, and triggers proactive RLHF interview cycles.
+
+## RLHF Loop
+Phantom asks you questions during idle moments. Your answers are parsed by Qwen into structured tokens and profile updates. Accept/reject feedback is scored by Qwen as a reward model (-1.0 to +1.0) and used to weight the next training pass.
 
 ## Signals captured
 
 | Layer | Signals |
 |---|---|
-| Context | App, URL, session time, day |
+| Context | App, URL, session time, day, Window Title |
 | Keyboard | WPM, backspace rate, modifier usage |
 | Mouse | Distance, clicks, idle time |
 | System | CPU, RAM, battery, network |
 | Focus | Composite focus score (0–100) |
-| Actions | App launches, git ops, file changes |
+| Actions | App launches, git ops, file changes, RLHF feedback |
 
 ## Token vocabulary (v2)
 ```
@@ -37,6 +40,7 @@ TYPING:* ERROR:* MOUSE:* TABS:* WIN:*
 CPU:* FOCUS:* SWITCH:* NET:*
 ACT:OPEN_* ACT:GIT_* ACT:FILE_*
 CLIP:* FILE:* MODE:* BAT:*
+RLHF:* PROJECT:* CONTEXT:*
 ```
 
 ## Action layer
@@ -48,15 +52,16 @@ When the model predicts an `ACT:*` token with >70% confidence, Phantom asks for 
 - **Architecture** — Two-Tower Behavioral Recommender (inspired by xai-org/x-algorithm)
 - **Observation** — Python daemon, NSWorkspace, pynput, psutil, Quartz
 - **Learning** — MLX Two-Tower (LSTM + Embeddings), Apple Silicon (M3 Max 128GB)
+- **Reward Model** — Qwen3.5-122B local (llama-server, 4 slots)
 - **Inference** — on-device, <3s retrain cycle
 - **Action** — osascript, subprocess, macOS native dialogs
 - **Feedback** — JSONL reward log for future RL loop
 
 ## 📊 Status
 
-- **Events captured**: 1,142+ behavior snapshots
+- **Events captured**: 1,251+ behavior snapshots
 - **Vocabulary**: 85 unique behavioral tokens
-- **Architecture**: Two-Tower Recommender (MLX) + Behavioral Transformer
+- **Architecture**: V2.2 live — RLHF loop, Qwen reward model, 4 slots
 - **RLHF**: Active Interviewer loop with Qwen-122B Reward Model (v2.2)
 
 ## 🧠 Advanced Features (v2.2)
