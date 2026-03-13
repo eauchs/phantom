@@ -47,7 +47,7 @@ When the model predicts an `ACT:*` token with >70% confidence, Phantom asks for 
 
 - **Architecture** — Two-Tower Behavioral Recommender (inspired by xai-org/x-algorithm)
 - **Observation** — Python daemon, NSWorkspace, pynput, psutil, Quartz
-- **Learning** — MLX transformer, Apple Silicon (M3 Max 128GB)
+- **Learning** — MLX Two-Tower (LSTM + Embeddings), Apple Silicon (M3 Max 128GB)
 - **Inference** — on-device, <3s retrain cycle
 - **Action** — osascript, subprocess, macOS native dialogs
 - **Feedback** — JSONL reward log for future RL loop
@@ -56,10 +56,12 @@ When the model predicts an `ACT:*` token with >70% confidence, Phantom asks for 
 ```
 phantom/
 ├── daemon/       # collector_v2.py — behavioral event logger
-├── tokenizer/    # tokenizer_v2.py — event → token sequences  
-├── trainer/      # train.py — MLX transformer
-├── agent/        # agent.py + feedback_logger.py
-└── data/         # events/, sequences_v2/, feedback/ (gitignored)
+├── trainer/      
+│   ├── feature_extractor.py  # raw events → normalized features
+│   ├── two_tower.py          # MLX Two-Tower model definition
+│   └── train_v2.py           # V2.1 orchestrator
+├── agent/        # agent.py (Two-Tower + fallback) + feedback_logger.py
+└── data/         # events/, features/, feedback/ (gitignored)
 ```
 
 ## Status
