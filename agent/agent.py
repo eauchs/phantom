@@ -7,9 +7,16 @@ import json
 import time
 import subprocess
 import sys
+import threading
 import numpy as np
 from pathlib import Path
 from datetime import datetime
+
+# ── Import interviewer ──
+try:
+    from agent.interviewer import interviewer_loop
+except ImportError:
+    interviewer_loop = None
 
 try:
     import mlx.core as mx
@@ -29,6 +36,27 @@ EVENTS_DIR = DATA_DIR / "events"
 FEATURES_DIR = DATA_DIR / "features"
 VOCAB_FILE = DATA_DIR / "vocab.json"
 MODELS_DIR = ROOT / "models"
+PROFILE_FILE = DATA_DIR / "profile" / "profile.json"
+
+# ── Profile Loading ───────────────────────────────────
+def load_profile():
+    if not PROFILE_FILE.exists():
+        return {"preferences": {}, "avoid": {}, "context": {}, "action_feedback": {}}
+    try:
+        return json.loads(PROFILE_FILE.read_text())
+    except:
+        return {"preferences": {}, "avoid": {}, "context": {}, "action_feedback": {}}
+
+def get_profile_summary(profile):
+    summary = []
+    if profile.get("preferences"):
+        summary.append(f"Likes: {list(profile['preferences'].keys())}")
+    if profile.get("avoid"):
+        summary.append(f"Avoids: {list(profile['avoid'].keys())}")
+    if profile.get("context", {}).get("last_interaction"):
+        last = profile["context"]["last_interaction"]
+        summary.append(f"Recent: {last.get('a')}")
+    return " ".join(summary)
 
 # ── Two-Tower Config ─────────────────────────────────
 ACTION_VOCAB = [
@@ -39,6 +67,7 @@ ACTION_VOCAB = [
   "WEB:GITHUB", "WEB:CLAUDE", "WEB:YOUTUBE"
 ]
 N_ACTIONS = len(ACTION_VOCAB)
+ACTION_TO_ID = {a: i for i, a in enumerate(ACTION_VOCAB)}
 
 class UserTower(nn.Module):
     def __init__(self, input_dim=24, hidden_dim=128, output_dim=256):
@@ -294,6 +323,16 @@ def main():
     print(f"   Confidence threshold: {CONFIDENCE_THRESHOLD:.0%}")
     print(f"   Watching: {EVENTS_DIR}\n")
 
+    # ── Load Profile ──
+    profile = load_profile()
+    print(f"   ✓ Profile loaded: {len(profile.get('action_feedback', {}))} feedback points.")
+
+    # ── Start Interviewer Thread ──
+    if interviewer_loop:
+        thread = threading.Thread(target=interviewer_loop, daemon=True)
+        thread.start()
+        print("   ✓ Interviewer thread active.")
+
     token2id = load_vocab()
     if not token2id:
         print("   ⚠️  No vocab found. Run trainer first.")
@@ -319,6 +358,10 @@ def main():
 
     while True:
         try:
+            # Refresh profile periodically
+            if time.time() % 300 < 10:
+                profile = load_profile()
+
             events = get_recent_events(CONTEXT_WINDOW)
             if events == last_events or not events:
                 time.sleep(POLL_INTERVAL)
@@ -329,6 +372,9 @@ def main():
             # 1. Try Two-Tower Prediction
             tt_preds = []
             if tt_model:
+                # Note: Injecting profile summary context logically before calling
+                profile_summary = get_profile_summary(profile)
+                
                 u_tower, c_tower = tt_model
                 x = events_to_feature_matrix(events, tt_mappings)
                 x = mx.array([x])
@@ -336,6 +382,13 @@ def main():
                 user_emb = u_tower(x)
                 action_embs = c_tower(mx.arange(N_ACTIONS))
                 scores = (user_emb @ action_embs.T)[0]
+                
+                # Apply profile-based bias if any (e.g. avoid actions user rejected)
+                for action, fb in profile.get("action_feedback", {}).items():
+                    if action in ACTION_TO_ID and fb.get("reason"):
+                        idx = ACTION_TO_ID[action]
+                        scores[idx] -= 2.0 # Penalize rejected actions
+                
                 probs = mx.sigmoid(scores * 10.0).tolist()
                 
                 for i, p in enumerate(probs):
@@ -349,6 +402,11 @@ def main():
             trans_preds = []
             context_tokens = []
             if model:
+                # Inject profile tokens as prefix
+                profile_summary = get_profile_summary(profile)
+                if profile_summary:
+                    context_tokens.append(f"PRF:{profile_summary}")
+
                 for ev in events[-16:]: # Keep window small for transformer
                     context_tokens.extend(event_to_tokens(ev))
                 context_tokens = context_tokens[-16:]
