@@ -17,55 +17,38 @@ import requests
 import time
 
 FEEDBACK_DIR = ROOT / "data" / "feedback"
+PROFILE_FILE = ROOT / "data" / "profile" / "profile.json"
 LLAMA_URL = "http://127.0.0.1:8080/v1/chat/completions"
 
-def get_qwen_reward(entry):
-    """
-    Call Qwen to score a feedback event.
-    """
-    system_prompt = (
-        "You are a reward model for a personal AI OS. "
-        "Analyze the behavioral context and return ONLY a JSON: "
-        "{\"reward\": float between -1.0 and 1.0, \"reason\": str}"
-    )
-    
-    # Build context payload
-    context = {
-        "action": entry.get("action"),
-        "accepted": entry.get("accepted"),
-        "ts": entry.get("ts"),
-        "context_tokens": entry.get("context_tokens", [])[-10:]
-    }
-    
-    payload = {
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": json.dumps(context)}
-        ],
-        "max_tokens": 500,
-        "temperature": 0.0
-    }
-    
+def get_session_modifier():
+    if not PROFILE_FILE.exists():
+        return 0.0, 0
     try:
-        r = requests.post(LLAMA_URL, json=payload, timeout=30)
-        if r.status_code == 200:
-            content = r.json()["choices"][0]["message"]["content"].strip()
-            # Strip <think>...</think> tags
-            if "<think>" in content:
-                content = content.split("</think>")[-1].strip()
-            
-            # Find the JSON part
-            start = content.find("{")
-            end = content.rfind("}")
+        profile = json.loads(PROFILE_FILE.read_text())
+        mod = profile.get("current_session_modifier", {})
+        if mod and time.time() - mod.get("ts", 0) < 1800: # 30 mins
+            return mod.get("value", 0.0), mod.get("ts", 0)
+    except:
+        pass
+    return 0.0, 0
+
+def get_qwen_reward(entry, session_mod=0.0):
+...
             if start != -1 and end != -1:
                 json_str = content[start:end+1]
                 data = json.loads(json_str)
-                return data.get("reward", 0.0), data.get("reason", "No reason provided")
+                reward = data.get("reward", 0.0)
+                
+                # Apply session modifier (clamped)
+                reward = max(-1.0, min(1.0, reward + session_mod))
+                
+                return reward, data.get("reason", "No reason provided")
     except Exception as e:
         print(f"      ⚠️ Reward model error: {e}")
     
-    # Fallback to binary
+    # Fallback to binary + session_mod
     fallback_reward = 1.0 if entry.get("accepted") else -1.0
+    fallback_reward = max(-1.0, min(1.0, fallback_reward + session_mod))
     return fallback_reward, "Fallback binary reward"
 
 def load_feedback():
@@ -75,6 +58,10 @@ def load_feedback():
     
     if not FEEDBACK_DIR.exists():
         return [], 0, 0
+    
+    session_mod, mod_ts = get_session_modifier()
+    if session_mod != 0.0:
+        print(f"   ℹ️ Session reward modifier active: {session_mod:+.2f}")
         
     print("   Scoring feedback with Qwen reward model...")
     files = sorted(FEEDBACK_DIR.glob("*.jsonl"))
@@ -85,8 +72,9 @@ def load_feedback():
                 if not line: continue
                 entry = json.loads(line)
                 
-                # Get reward from Qwen
-                reward, reason = get_qwen_reward(entry)
+                # Apply session_mod only if entry is newer than the modifier or within reasonable window
+                # For simplicity, we apply to all if session_mod is active
+                reward, reason = get_qwen_reward(entry, session_mod=session_mod)
                 entry["reward"] = reward
                 entry["reward_reason"] = reason
                 

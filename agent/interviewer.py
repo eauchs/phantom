@@ -138,6 +138,85 @@ def save_answer(question, answer, context_tokens):
     }
     with open(ANSWERS_FILE, "a") as f:
         f.write(json.dumps(entry) + "\n")
+    
+    # Parse answer for structured context
+    parse_answer_with_qwen(question, answer)
+
+def parse_answer_with_qwen(question, answer):
+    if not check_health():
+        return
+    
+    system_prompt = (
+        "You are a behavioral context extractor for a personal AI OS. "
+        "Given a user's answer to a question, extract structured context. "
+        "Return ONLY JSON (no preamble): "
+        "{ "
+        "  'tokens': ['PROJECT:X', 'CONTEXT:Y'], "
+        "  'profile_update': {'key': 'value'}, "
+        "  'reward_modifier': float between -1.0 and 1.0 "
+        "} "
+        "reward_modifier = how much this context should amplify/dampen "
+        "interruptions right now. -1.0 = never interrupt, +1.0 = open. "
+        "Strip <think> tags before parsing."
+    )
+    user_prompt = f"question={question}\nanswer={answer}"
+    
+    payload = {
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "max_tokens": 300,
+        "temperature": 0.0
+    }
+    
+    try:
+        r = requests.post(LLAMA_URL, json=payload, timeout=30)
+        if r.status_code == 200:
+            content = r.json()["choices"][0]["message"]["content"].strip()
+            if "<think>" in content:
+                content = content.split("</think>")[-1].strip()
+            
+            # Find the JSON part
+            start = content.find("{")
+            end = content.rfind("}")
+            if start != -1 and end != -1:
+                json_str = content[start:end+1].replace("'", "\"")
+                data = json.loads(json_str)
+                
+                tokens = data.get("tokens", [])
+                profile_update = data.get("profile_update", {})
+                reward_modifier = data.get("reward_modifier", 0.0)
+                
+                apply_nlp_insights(tokens, profile_update, reward_modifier)
+    except Exception as e:
+        print(f"[INTERVIEWER] NLP Parsing error: {e}")
+
+def apply_nlp_insights(tokens, profile_update, reward_modifier):
+    try:
+        if not PROFILE_FILE.exists():
+            profile = {"preferences": {}, "avoid": {}, "context": {}, "action_feedback": {}}
+        else:
+            profile = json.loads(PROFILE_FILE.read_text())
+        
+        # 1. Store tokens for injection (temporary storage)
+        TOKEN_INJECTION_FILE = PROFILE_DIR / "injected_tokens.json"
+        TOKEN_INJECTION_FILE.write_text(json.dumps({"tokens": tokens, "ts": time.time()}))
+        
+        # 2. Merge profile_update
+        if "preferences" not in profile: profile["preferences"] = {}
+        profile["preferences"].update(profile_update)
+        
+        # 3. Store reward_modifier with timestamp
+        profile["current_session_modifier"] = {
+            "value": reward_modifier,
+            "ts": time.time()
+        }
+        
+        PROFILE_FILE.write_text(json.dumps(profile, indent=2))
+        print(f"[INTERVIEWER] NLP Insights applied: {len(tokens)} tokens, reward_mod={reward_modifier:+.2f}")
+    except Exception as e:
+        print(f"[INTERVIEWER] Error applying NLP insights: {e}")
 
 def update_profile_with_insight(question, answer):
     if not PROFILE_FILE.exists():

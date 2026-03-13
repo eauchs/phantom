@@ -38,6 +38,7 @@ FEATURES_DIR = DATA_DIR / "features"
 VOCAB_FILE = DATA_DIR / "vocab.json"
 MODELS_DIR = ROOT / "models"
 PROFILE_FILE = DATA_DIR / "profile" / "profile.json"
+TOKEN_INJECTION_FILE = DATA_DIR / "profile" / "injected_tokens.json"
 
 # ── Profile Loading ───────────────────────────────────
 def load_profile():
@@ -47,6 +48,18 @@ def load_profile():
         return json.loads(PROFILE_FILE.read_text())
     except:
         return {"preferences": {}, "avoid": {}, "context": {}, "action_feedback": {}}
+
+def get_injected_tokens():
+    if not TOKEN_INJECTION_FILE.exists():
+        return []
+    try:
+        data = json.loads(TOKEN_INJECTION_FILE.read_text())
+        # Only inject if tokens are fresh (last 10 mins)
+        if time.time() - data.get("ts", 0) < 600:
+            return data.get("tokens", [])
+    except:
+        pass
+    return []
 
 def get_profile_summary(profile):
     summary = []
@@ -409,6 +422,11 @@ def main():
                 profile_summary = get_profile_summary(profile)
                 if profile_summary:
                     context_tokens.append(f"PRF:{profile_summary}")
+                
+                # NLP: Inject tokens from last interviewer answer
+                injected = get_injected_tokens()
+                if injected:
+                    context_tokens.extend([f"NLP:{t}" for t in injected])
 
                 for ev in events[-16:]: # Keep window small for transformer
                     context_tokens.extend(event_to_tokens(ev))
