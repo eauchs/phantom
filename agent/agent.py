@@ -15,7 +15,8 @@ from datetime import datetime
 # ── Import interviewer ──
 try:
     from agent.interviewer import interviewer_loop
-except ImportError:
+except ImportError as e:
+    print(f"   ⚠️  Could not import interviewer: {e}")
     interviewer_loop = None
 
 try:
@@ -377,7 +378,9 @@ def main():
                 
                 u_tower, c_tower = tt_model
                 x = events_to_feature_matrix(events, tt_mappings)
-                x = mx.array([x])
+                # Ensure x is a numpy array before conversion to MLX
+                x = np.array(x, dtype=np.float32)
+                x = mx.array(np.expand_dims(x, axis=0))
                 
                 user_emb = u_tower(x)
                 action_embs = c_tower(mx.arange(N_ACTIONS))
