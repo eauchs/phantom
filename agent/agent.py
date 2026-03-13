@@ -26,13 +26,122 @@ from feedback_logger import log_feedback
 
 DATA_DIR   = ROOT / "data"
 EVENTS_DIR = DATA_DIR / "events"
+FEATURES_DIR = DATA_DIR / "features"
 VOCAB_FILE = DATA_DIR / "vocab.json"
 MODELS_DIR = ROOT / "models"
+
+# ── Two-Tower Config ─────────────────────────────────
+ACTION_VOCAB = [
+  "ACT:OPEN_BROWSER", "ACT:OPEN_TERMINAL", "ACT:OPEN_EDITOR",
+  "ACT:OPEN_COMM", "ACT:GIT_PUSH", "ACT:GIT_COMMIT", "ACT:GIT_PULL",
+  "ACT:FILE_CREATE", "ACT:DND_ON", "ACT:MUSIC_PLAY",
+  "FOCUS:DEEP", "FOCUS:SHALLOW", "SWITCH:FAST",
+  "WEB:GITHUB", "WEB:CLAUDE", "WEB:YOUTUBE"
+]
+N_ACTIONS = len(ACTION_VOCAB)
+
+class UserTower(nn.Module):
+    def __init__(self, input_dim=24, hidden_dim=128, output_dim=256):
+        super().__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.lstm = nn.LSTM(hidden_dim, output_dim)
+        self.fc2 = nn.Linear(output_dim, output_dim)
+
+    def __call__(self, x):
+        h = nn.relu(self.fc1(x))
+        _, (h_last, _) = self.lstm(h)
+        h_last = h_last[-1]
+        out = self.fc2(h_last)
+        return out / mx.linalg.norm(out, axis=-1, keepdims=True)
+
+class CandidateTower(nn.Module):
+    def __init__(self, n_actions, output_dim=256):
+        super().__init__()
+        self.embedding = nn.Embedding(n_actions, output_dim)
+
+    def __call__(self, action_indices):
+        out = self.embedding(action_indices)
+        return out / mx.linalg.norm(out, axis=-1, keepdims=True)
+
+def load_two_tower():
+    npz_path = MODELS_DIR / "two_tower.npz"
+    mapping_path = FEATURES_DIR / "mappings.json"
+    if not npz_path.exists() or not mapping_path.exists():
+        return None, None
+    
+    with open(mapping_path) as f:
+        mappings = json.load(f)
+    
+    u_tower = UserTower()
+    c_tower = CandidateTower(N_ACTIONS)
+    
+    weights = mx.load(str(npz_path))
+    u_weights = {k.replace("user_tower.", ""): v for k, v in weights.items() if k.startswith("user_tower.")}
+    c_weights = {k.replace("candidate_tower.", ""): v for k, v in weights.items() if k.startswith("candidate_tower.")}
+    
+    u_tower.load_weights(list(u_weights.items()))
+    c_tower.load_weights(list(c_weights.items()))
+    
+    return (u_tower, c_tower), mappings
+
+def events_to_feature_matrix(events, mappings, seq_len=512):
+    WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    CLIPBOARD_TYPES = mappings.get("clip", ["empty", "text", "url", "image", "code"])
+    
+    matrix = []
+    for e in events:
+        vec = np.zeros(24, dtype=np.float32)
+        vec[0] = e.get("hour", 0) / 24.0
+        try:
+            wd = e.get("weekday", "Monday")
+            vec[1] = WEEKDAYS.index(wd) / 7.0
+        except: vec[1] = 0.0
+        
+        vec[2] = min(e.get("wpm", 0) / 200.0, 1.0)
+        vec[3] = min(e.get("backspace_rate", 0) / 30.0, 1.0)
+        vec[4] = min(e.get("modifier_rate", 0) / 30.0, 1.0)
+        vec[5] = min(e.get("mouse_distance_px", 0) / 5000.0, 1.0)
+        vec[6] = min(e.get("mouse_clicks", 0) / 20.0, 1.0)
+        vec[7] = min(e.get("scroll_events", 0) / 100.0, 1.0)
+        vec[8] = min(e.get("mouse_idle_s", 0) / 300.0, 1.0)
+        vec[9] = min(e.get("tab_count", 0) / 20.0, 1.0)
+        vec[10] = min(e.get("window_count", 0) / 10.0, 1.0)
+        vec[11] = min(e.get("cpu_percent", 0) / 100.0, 1.0)
+        vec[12] = min(e.get("ram_percent", 0) / 100.0, 1.0)
+        
+        bat = e.get("battery") or {}
+        vec[13] = (e.get("bat_percent") or bat.get("percent", 100)) / 100.0
+        vec[14] = 1.0 if (e.get("bat_charging") or bat.get("plugged", True)) else 0.0
+        
+        vec[15] = e.get("focus_score", 50) / 100.0
+        vec[16] = min(e.get("app_switch_rate", 0) / 10.0, 1.0)
+        vec[17] = 1.0 if e.get("net_active") else 0.0
+        vec[18] = 1.0 if e.get("dark_mode") else 0.0
+        vec[19] = min(e.get("duration", 0) / 3600.0, 1.0)
+        
+        app = e.get("app", "unknown")
+        vec[20] = mappings["apps"].get(app, 0)
+        
+        url = e.get("url", "")
+        domain = url.split("//")[-1].split("/")[0] if "//" in url else url
+        vec[21] = mappings["urls"].get(domain, 0)
+        
+        clip = e.get("clipboard_type", "empty")
+        try: vec[22] = CLIPBOARD_TYPES.index(clip)
+        except: vec[22] = 0
+        
+        vec[23] = min(e.get("screens", 1) / 3.0, 1.0)
+        matrix.append(vec)
+    
+    if len(matrix) < seq_len:
+        pad = [np.zeros(24, dtype=np.float32)] * (seq_len - len(matrix))
+        matrix = pad + matrix
+    return np.array(matrix[-seq_len:], dtype=np.float32)
 
 # ── Config ────────────────────────────────────────────
 POLL_INTERVAL   = 5
 CONFIDENCE_THRESHOLD = 0.55
-CONTEXT_WINDOW  = 10
+CONTEXT_WINDOW  = 512 # Extended for Two-Tower
 COOLDOWN        = 120
 
 # ── Notif macOS ───────────────────────────────────────
@@ -192,12 +301,18 @@ def main():
 
     id2token = {v: k for k, v in token2id.items()}
     model    = load_model(token2id)
-    if model is None:
+    
+    # ── Two-Tower Load ──
+    tt_model, tt_mappings = load_two_tower()
+    if tt_model:
+        print("   ✓ Two-Tower model loaded.")
+    
+    if model is None and tt_model is None:
         print("   ⚠️  No model found. Run trainer first.")
         return
 
-    print("   ✓ Model loaded. Watching your behavior...\n")
-    notify("Phantom v2", "Agent démarré — analyse du focus et clavier activée 👀")
+    print("   ✓ Monitoring behavior...\n")
+    notify("Phantom v2.1", "Agent démarré — Two-Tower architecture active 🚀")
 
     last_notif  = {}
     last_events = []
@@ -211,14 +326,38 @@ def main():
 
             last_events = events
             
+            # 1. Try Two-Tower Prediction
+            tt_preds = []
+            if tt_model:
+                u_tower, c_tower = tt_model
+                x = events_to_feature_matrix(events, tt_mappings)
+                x = mx.array([x])
+                
+                user_emb = u_tower(x)
+                action_embs = c_tower(mx.arange(N_ACTIONS))
+                scores = (user_emb @ action_embs.T)[0]
+                probs = mx.sigmoid(scores * 10.0).tolist()
+                
+                for i, p in enumerate(probs):
+                    if p > 0.75:
+                        tt_preds.append((ACTION_VOCAB[i], p))
+                
+                # Sort by confidence
+                tt_preds.sort(key=lambda x: -x[1])
+
+            # 2. Transformer Fallback
+            trans_preds = []
             context_tokens = []
-            for ev in events:
-                context_tokens.extend(event_to_tokens(ev))
-            context_tokens = context_tokens[-16:]
+            if model:
+                for ev in events[-16:]: # Keep window small for transformer
+                    context_tokens.extend(event_to_tokens(ev))
+                context_tokens = context_tokens[-16:]
+                trans_preds = predict(model, token2id, id2token, context_tokens)
 
-            preds = predict(model, token2id, id2token, context_tokens)
+            # 3. Decision Logic
+            final_preds = tt_preds if tt_preds else trans_preds
 
-            for token, confidence in preds:
+            for token, confidence in final_preds:
                 if confidence < CONFIDENCE_THRESHOLD:
                     continue
                 if token in {"<PAD>", "<UNK>", "<BOS>", "<EOS>"}:
@@ -237,7 +376,7 @@ def main():
 
                 # ── Notification Simple (Observations) ──
                 title, message = token_to_readable(token)
-                notify(title, message, subtitle=f"👻 {confidence:.0%} de confiance")
+                notify(title, message, subtitle=f"👻 {confidence:.0%} de confiance ({'TT' if tt_preds else 'Trans'})")
                 last_notif[token] = now
                 break
 
