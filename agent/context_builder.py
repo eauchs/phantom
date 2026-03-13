@@ -56,6 +56,8 @@ def get_feedback_history(n=5):
         if len(feedback) >= n: break
     return feedback
 
+from agent.session_state import load_state
+
 def build_context() -> dict:
     profile = {}
     if PROFILE_FILE.exists():
@@ -68,6 +70,7 @@ def build_context() -> dict:
     
     return {
         "profile": profile,
+        "session": load_state(),
         "session_modifier": profile.get("current_session_modifier", {}).get("value", 0.0),
         "last_10_tokens": get_last_tokens(10),
         "current_hour": now.hour,

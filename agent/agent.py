@@ -8,9 +8,13 @@ import time
 import subprocess
 import sys
 import threading
+import signal
 import numpy as np
 from pathlib import Path
 from datetime import datetime
+
+# ── Session State ──
+from agent.session_state import on_startup, on_shutdown, update_focus_peak, update_project, save_state
 
 # ── Global Model Store (for hot reloading) ──
 MODELS = {
@@ -373,6 +377,12 @@ def execute_action(token, context_tokens):
     # Log feedback (important pour le futur RL / reward)
     log_feedback(token, confirmed, context_tokens)
     
+    # Update session state
+    if confirmed:
+        save_state({"last_action_accepted": token})
+    else:
+        save_state({"last_action_rejected": token})
+    
     if confirmed:
         try:
             cwd = str(ROOT) if "git" in command and "osascript" not in command else None
@@ -390,6 +400,18 @@ def main():
     print(f"   Backend: {BACKEND.upper()}")
     print(f"   Confidence threshold: {CONFIDENCE_THRESHOLD:.0%}")
     print(f"   Watching: {EVENTS_DIR}\n")
+
+    # ── Session Startup ──
+    on_startup()
+
+    # ── Signal Handling for Shutdown ──
+    def signal_handler(sig, frame):
+        print("\n👻 Shutting down Phantom...")
+        on_shutdown()
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
 
     # ── Load Profile ──
     profile = load_profile()
@@ -451,6 +473,14 @@ def main():
 
             last_events = events
             
+            # ── Session Tracking (Focus & Projects) ──
+            if events:
+                last_ev = events[-1]
+                f_score = last_ev.get("focus_score", 0)
+                if f_score > 75:
+                    update_focus_peak(f_score, last_ev.get("app"), event_to_tokens(last_ev))
+                update_project(event_to_tokens(last_ev))
+
             # 1. Try Two-Tower Prediction
             tt_preds = []
             if tt_model:
