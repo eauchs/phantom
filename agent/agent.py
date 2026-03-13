@@ -9,38 +9,64 @@ import subprocess
 import sys
 import threading
 import numpy as np
+import subprocess
 from pathlib import Path
 from datetime import datetime
 
-# ── Import interviewer ──
-try:
-    from agent.interviewer import interviewer_loop
-except ImportError as e:
-    print(f"   ⚠️  Could not import interviewer: {e}")
-    interviewer_loop = None
+# ── Global Model Store (for hot reloading) ──
+MODELS = {
+    "transformer": None,
+    "tt_model": None,
+    "tt_mappings": None,
+    "token2id": None,
+    "id2token": None
+}
 
-try:
-    import mlx.core as mx
-    import mlx.nn as nn
-    BACKEND = "mlx"
-except ImportError:
-    BACKEND = "numpy"
+# ── Auto-Retrain Loop ──────────────────────────────────
+def auto_retrain_loop():
+    print("   ✓ Auto-retrain thread active (2h interval).")
+    last_retrain = time.time()
+    
+    while True:
+        try:
+            time.sleep(7200) # 2 hours
+            
+            # Check if new feedback exists since last retrain
+            has_new_feedback = False
+            feedback_files = sorted(DATA_DIR.glob("feedback/*.jsonl"))
+            if feedback_files:
+                last_f = feedback_files[-1]
+                if last_f.stat().st_mtime > last_retrain:
+                    has_new_feedback = True
+            
+            if has_new_feedback:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] 🧠 Auto-retraining...")
+                env = {"PYTHONPATH": str(ROOT)}
+                
+                # 1. Transformer train
+                subprocess.run(["python3", "trainer/train.py"], cwd=ROOT, env=env)
+                # 2. Two-Tower train
+                subprocess.run(["python3", "trainer/train_v2.py"], cwd=ROOT, env=env)
+                
+                # 3. Hot reload models
+                new_token2id = load_vocab()
+                if new_token2id:
+                    MODELS["token2id"] = new_token2id
+                    MODELS["id2token"] = {v: k for k, v in new_token2id.items()}
+                    MODELS["transformer"] = load_model(new_token2id)
+                
+                new_tt, new_mappings = load_two_tower()
+                if new_tt:
+                    MODELS["tt_model"] = new_tt
+                    MODELS["tt_mappings"] = new_mappings
+                
+                last_retrain = time.time()
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] ✓ Auto-retrain complete. Models reloaded.")
+                
+        except Exception as e:
+            print(f"[RETRAIN ERROR] {e}")
+            time.sleep(600)
 
-ROOT       = Path(__file__).parent.parent
-sys.path.insert(0, str(ROOT))
-
-from tokenizer.tokenizer_v2 import tokenize_event
-from agent.feedback_logger import log_feedback
-
-DATA_DIR   = ROOT / "data"
-EVENTS_DIR = DATA_DIR / "events"
-FEATURES_DIR = DATA_DIR / "features"
-VOCAB_FILE = DATA_DIR / "vocab.json"
-MODELS_DIR = ROOT / "models"
-PROFILE_FILE = DATA_DIR / "profile" / "profile.json"
-TOKEN_INJECTION_FILE = DATA_DIR / "profile" / "injected_tokens.json"
-
-# ── Profile Loading ───────────────────────────────────
 def load_profile():
     if not PROFILE_FILE.exists():
         return {"preferences": {}, "avoid": {}, "context": {}, "action_feedback": {}}
@@ -347,20 +373,27 @@ def main():
         thread.start()
         print("   ✓ Interviewer thread active.")
 
+    # ── Start Retrain Thread ──
+    rt_thread = threading.Thread(target=auto_retrain_loop, daemon=True)
+    rt_thread.start()
+
     token2id = load_vocab()
     if not token2id:
         print("   ⚠️  No vocab found. Run trainer first.")
         return
 
-    id2token = {v: k for k, v in token2id.items()}
-    model    = load_model(token2id)
+    MODELS["token2id"] = token2id
+    MODELS["id2token"] = {v: k for k, v in token2id.items()}
+    MODELS["transformer"] = load_model(token2id)
     
     # ── Two-Tower Load ──
     tt_model, tt_mappings = load_two_tower()
     if tt_model:
+        MODELS["tt_model"] = tt_model
+        MODELS["tt_mappings"] = tt_mappings
         print("   ✓ Two-Tower model loaded.")
     
-    if model is None and tt_model is None:
+    if MODELS["transformer"] is None and MODELS["tt_model"] is None:
         print("   ⚠️  No model found. Run trainer first.")
         return
 
@@ -372,6 +405,13 @@ def main():
 
     while True:
         try:
+            # Local aliases for clean loop (hot reloaded via MODELS dict)
+            model = MODELS["transformer"]
+            tt_model = MODELS["tt_model"]
+            tt_mappings = MODELS["tt_mappings"]
+            token2id = MODELS["token2id"]
+            id2token = MODELS["id2token"]
+
             # Refresh profile periodically
             if time.time() % 300 < 10:
                 profile = load_profile()

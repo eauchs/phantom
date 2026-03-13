@@ -15,21 +15,17 @@ import trainer.feature_extractor as fe
 import trainer.two_tower as tt
 import requests
 import time
+from agent.context_builder import build_context
 
 FEEDBACK_DIR = ROOT / "data" / "feedback"
-PROFILE_FILE = ROOT / "data" / "profile" / "profile.json"
 LLAMA_URL = "http://127.0.0.1:8080/v1/chat/completions"
 
 def get_session_modifier():
-    if not PROFILE_FILE.exists():
-        return 0.0, 0
-    try:
-        profile = json.loads(PROFILE_FILE.read_text())
-        mod = profile.get("current_session_modifier", {})
-        if mod and time.time() - mod.get("ts", 0) < 1800: # 30 mins
-            return mod.get("value", 0.0), mod.get("ts", 0)
-    except:
-        pass
+    context = build_context()
+    profile = context.get("profile", {})
+    mod = profile.get("current_session_modifier", {})
+    if mod and time.time() - mod.get("ts", 0) < 1800: # 30 mins
+        return mod.get("value", 0.0), mod.get("ts", 0)
     return 0.0, 0
 
 def get_qwen_reward(entry, session_mod=0.0):
@@ -42,8 +38,10 @@ def get_qwen_reward(entry, session_mod=0.0):
         "{\"reward\": float between -1.0 and 1.0, \"reason\": str}"
     )
     
-    # Build context payload
-    context = {
+    # Use centralized context
+    context = build_context()
+    # Override with feedback-specific entry
+    context["feedback_entry"] = {
         "action": entry.get("action"),
         "accepted": entry.get("accepted"),
         "ts": entry.get("ts"),
