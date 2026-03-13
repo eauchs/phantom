@@ -222,6 +222,11 @@ def tokenize_event(ev):
     
     tokens.append(app_token(app))
     
+    # Check for contextual expansion from collector
+    context_token = ev.get("contextual_token")
+    if context_token:
+        tokens.append(context_token)
+    
     # New: Context expansion
     tokens.append(ssid_token(ssid))
     tokens.append(clip_token(clip))
