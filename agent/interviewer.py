@@ -8,6 +8,7 @@ import random
 from datetime import datetime
 from pathlib import Path
 from agent.context_builder import build_context
+from agent.llm_client import call_qwen, check_health
 
 ROOT = Path(__file__).parent.parent
 DATA_DIR = ROOT / "data"
