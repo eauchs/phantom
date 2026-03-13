@@ -91,9 +91,9 @@ def get_contextual_token(app_name, url):
         print(f"  role={m['role']} content_len={len(str(m.get('content','')))}")
 
     try:
-        r = requests.post(LLAMA_URL, json=payload, timeout=30)
-        if r.status_code == 200:
-            content = r.json()["choices"][0]["message"]["content"].strip()
+        res = call_qwen(payload, timeout=30)
+        if res:
+            content = res["choices"][0]["message"]["content"].strip()
             if "<think>" in content:
                 content = content.split("</think>")[-1].strip()
             

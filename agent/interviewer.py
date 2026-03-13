@@ -61,16 +61,8 @@ def get_profile_summary():
     except:
         return "Error reading profile."
 
-def check_health():
-    try:
-        r = requests.get(HEALTH_URL, timeout=10)
-        if r.status_code == 200:
-            return r.json().get("status") == "ok"
-    except:
-        pass
-    return False
+def check_profile_summary():
 
-def ask_llm(last_5_tokens, profile_summary):
     if not check_health():
         print("[INTERVIEWER] llama-server not healthy, using fallback.")
         return random.choice(FALLBACK_QUESTIONS)
@@ -112,12 +104,12 @@ def ask_llm(last_5_tokens, profile_summary):
     for m in payload["messages"]:
         print(f"  role={m['role']} content_len={len(str(m.get('content','')))}")
 
-    for attempt in range(2):
-        try:
-            r = requests.post(LLAMA_URL, json=payload, timeout=120)
-            if r.status_code == 200:
-                content = r.json()["choices"][0]["message"]["content"]
-                # Strip <think>...</think> tags
+    try:
+        res = call_qwen(payload)
+        if res:
+            content = res["choices"][0]["message"]["content"]
+            # Extract between <think> tags if present
+
                 if "<think>" in content and "</think>" in content:
                     content = content.split("</think>")[-1].strip()
                 elif "</think>" in content:
@@ -207,9 +199,9 @@ def parse_answer_with_qwen(question, answer):
         print(f"  role={m['role']} content_len={len(str(m.get('content','')))}")
 
     try:
-        r = requests.post(LLAMA_URL, json=payload, timeout=120)
-        if r.status_code == 200:
-            content = r.json()["choices"][0]["message"]["content"].strip()
+        res = call_qwen(payload)
+        if res:
+            content = res["choices"][0]["message"]["content"].strip()
             if "<think>" in content:
                 content = content.split("</think>")[-1].strip()
             
